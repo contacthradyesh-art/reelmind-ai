@@ -30,7 +30,7 @@ type Props = {
   photoSide?: "left" | "right";
   photoTransform?: PhotoTransform;
   onSelectLayer: (id: string) => void;
-  onTransformLayer: (id: string, patch: Partial<EditableCanvasLayer>) => void;
+  onTransformLayer: (id: string, patch: Partial<Omit<EditableCanvasLayer, "id">>) => void;
   onTransformPhoto: (patch: PhotoTransform) => void;
   onSelectPhoto: () => void;
   onGestureStart?: () => void;
