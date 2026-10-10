@@ -12,7 +12,8 @@ import { signInWithPopup } from "firebase/auth";
 type AnimationName = "fade" | "slide" | "pop" | "bounce" | "float" | "spin" | "shake" | "pulse";
 type AspectRatio = "9:16" | "1:1" | "16:9";
 type TextLayer = { id: string; text: string; color: string; fontFamily: string; fontSize: number; x: number; y: number; animation: AnimationName; scale: number; rotation?: number; outlineColor: string; outlineWidth: number; backgroundColor: string };
-type Scene = { id: string; name: string; background: string; duration: number; layers: TextLayer[]; photoUrl?: string; photoName?: string; photoSide?: "left" | "right"; photoX?: number; photoY?: number; photoScale?: number; photoRotation?: number; videoUrl?: string; videoName?: string; trimStart?: number; trimEnd?: number };
+type CaptionWord = { text: string; start: number; end: number };
+type Scene = { id: string; name: string; background: string; duration: number; layers: TextLayer[]; photoUrl?: string; photoName?: string; photoSide?: "left" | "right"; photoX?: number; photoY?: number; photoScale?: number; photoRotation?: number; videoUrl?: string; videoName?: string; trimStart?: number; trimEnd?: number; captions?: CaptionWord[] };
 type ProjectState = { scenes: Scene[]; activeSceneId: string; activeLayerId: string; aspect: AspectRatio };
 
 const makeLayer = (id: string, text: string, color: string, fontFamily: string, fontSize: number, x: number, y: number, animation: AnimationName = "pop"): TextLayer => ({ id, text, color, fontFamily, fontSize, x, y, animation, scale: 1, outlineColor: "#111111", outlineWidth: 0, backgroundColor: "transparent" });
@@ -67,6 +68,7 @@ export default function EditorPage() {
   const previewAudioRef = useRef<HTMLAudioElement>(null);
   const photoCache = useRef<Map<string, HTMLImageElement>>(new Map());
   const videoCache = useRef<Map<string, HTMLVideoElement>>(new Map());
+  const mediaFiles = useRef<Map<string, File>>(new Map());
   const activeVideoSceneRef = useRef<string | null>(null);
   const ffmpegRef = useRef<FFmpeg | null>(null);
   const animationRef = useRef<number | null>(null);
@@ -88,6 +90,8 @@ export default function EditorPage() {
   const [status, setStatus] = useState("All changes are saved in this session");
   const [projectName, setProjectName] = useState("Untitled Reel");
   const [cloudBusy, setCloudBusy] = useState(false);
+  const [voiceoverText, setVoiceoverText] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [downloadUrl, setDownloadUrl] = useState("");
   const [history, setHistory] = useState<ProjectState[]>([]);
@@ -259,6 +263,13 @@ export default function EditorPage() {
       lines.forEach((line, index) => { const lineY = (index - (lines.length - 1) / 2) * lineHeight; if (layer.backgroundColor && layer.backgroundColor !== "transparent") { const metrics = ctx.measureText(line); ctx.fillStyle = layer.backgroundColor; ctx.fillRect(-metrics.width / 2 - size * 0.16, lineY - lineHeight * 0.43, metrics.width + size * 0.32, lineHeight * 0.86); ctx.fillStyle = layer.color; } if (layer.outlineWidth > 0) { ctx.lineJoin = "round"; ctx.strokeStyle = layer.outlineColor; ctx.lineWidth = layer.outlineWidth * (width / 1080); ctx.strokeText(line, 0, lineY, width * 0.88); } ctx.fillText(line, 0, lineY, width * 0.88); });
       ctx.restore();
     });
+    const activeWord = scene.captions?.find(word => elapsed >= word.start && elapsed <= word.end);
+    if (activeWord) {
+      ctx.save(); ctx.font = `900 ${Math.max(24, width * 0.055)}px Poppins, Arial`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const caption = activeWord.text.trim(); const captionWidth = Math.min(width * 0.9, ctx.measureText(caption).width + width * 0.08);
+      ctx.fillStyle = "rgba(0,0,0,.78)"; ctx.fillRect((width-captionWidth)/2, height*0.79, captionWidth, height*0.075);
+      ctx.fillStyle = "#facc15"; ctx.fillText(caption, width/2, height*0.827, width*0.86); ctx.restore();
+    }
   }, [fillBackground, loadPhoto, loadVideo]);
 
   useEffect(() => {
@@ -305,6 +316,7 @@ export default function EditorPage() {
     if (!file.type.startsWith("video/") && !/\\.(mp4|mov|webm)$/i.test(file.name)) { setStatus("Choose an MP4, MOV or WebM video."); return; }
     if (file.size > 500 * 1024 * 1024) { setStatus("Video is over the 500 MB local import limit."); return; }
     const url = URL.createObjectURL(file);
+    mediaFiles.current.set(activeSceneId, file);
     remember();
     setScenes(items => items.map(scene => scene.id === activeSceneId ? { ...scene, videoUrl: url, videoName: file.name, trimStart: 0, trimEnd: undefined } : scene));
     const video = document.createElement("video"); video.src = url; video.preload = "metadata"; video.onloadedmetadata = () => setScenes(items => items.map(scene => scene.id === activeSceneId ? { ...scene, duration: Math.max(0.5, Math.min(30, video.duration || 3)), trimEnd: video.duration } : scene)); videoCache.current.set(url, video);
@@ -322,9 +334,31 @@ export default function EditorPage() {
     image.src = url;
     patchScene({ photoUrl: url, photoName: file.name });
   };
+  const generateCaptions = async () => {
+    const file = mediaFiles.current.get(activeSceneId);
+    if (!file) { setStatus("First import a video or upload an audio file for this scene."); return; }
+    setAiBusy(true); setStatus("Generating word-timed captions…");
+    try { const form = new FormData(); form.set("file", file); const response = await fetch("/api/captions", { method: "POST", body: form }); const data = await response.json(); if (!response.ok) throw new Error(data.error ?? "Caption generation failed");
+      const words = Array.isArray(data.words) ? data.words as CaptionWord[] : [];
+      if (!words.length) throw new Error("No word timestamps returned. Try a clearer audio/video file.");
+      remember(); setScenes(items => items.map(scene => scene.id === activeSceneId ? { ...scene, captions: words } : scene)); setStatus(`Generated ${words.length} timed words. Captions appear during preview and export.`);
+    } catch(error) { setStatus(error instanceof Error ? error.message : "Caption generation failed."); }
+    finally { setAiBusy(false); }
+  };
+  const generateVoiceover = async () => {
+    if (!voiceoverText.trim()) { setStatus("Enter voiceover text first."); return; }
+    setAiBusy(true); setStatus("Generating AI voiceover…");
+    try { const response = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: voiceoverText }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error ?? "TTS failed");
+      const binary = atob(data.audioBase64); const bytes = new Uint8Array(binary.length); for(let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([bytes], { type: data.mimeType ?? "audio/wav" })); if(musicUrl) URL.revokeObjectURL(musicUrl); setMusicUrl(url); setMusicName("AI voiceover.wav"); setStatus("AI voiceover generated and loaded as the current audio track.");
+    } catch(error) { setStatus(error instanceof Error ? error.message : "Voiceover generation failed."); }
+    finally { setAiBusy(false); }
+  };
+
   const handleMusic = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
     if (musicUrl) URL.revokeObjectURL(musicUrl);
+    mediaFiles.current.set(activeSceneId, file);
     const nextUrl = URL.createObjectURL(file);
     setMusicUrl(nextUrl); setMusicName(file.name); setDownloadUrl("");
     setStatus(`Music loaded: ${file.name}. Preview ke liye Play dabayein.`);
@@ -490,7 +524,7 @@ export default function EditorPage() {
             </div>}{panel === "Text" && <div className="space-y-3"><button onClick={addText} className="editor-secondary w-full">＋ Add text layer</button>{activeScene.layers.map((layer) => <button key={layer.id} onClick={() => setActiveLayerId(layer.id)} className={`layer-list-item ${activeLayerId === layer.id ? "selected" : ""}`}><span className="font-bold">T</span><span className="truncate text-left">{layer.text.replaceAll("\n", " ") || "Text layer"}</span></button>)}</div>}
             {panel === "Characters" && <div className="space-y-4"><div className="rounded-xl border border-fuchsia-400/20 bg-fuchsia-400/5 p-3"><b className="text-sm">Animated characters</b><p className="mt-1 text-xs leading-5 text-zinc-400">Choose a character to add it to the active scene. Select it, choose an animation, then press Play.</p></div>{characterPacks.map((pack) => <section key={pack.title}><h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-zinc-400">{pack.title}</h3><div className="grid grid-cols-4 gap-2">{pack.items.map((character) => <button key={character} title={`Add ${character}`} onClick={() => addCharacter(character)} className="flex aspect-square items-center justify-center rounded-xl border border-white/10 bg-white/[.04] text-2xl transition hover:border-fuchsia-400/60 hover:bg-fuchsia-400/10">{character}</button>)}</div></section>)}</div>}
             {panel === "Media" && <div className="space-y-4"><p className="text-xs leading-5 text-zinc-400">Add a video clip or photo to this scene. Local media remains in this browser session.</p><label className="upload-box"><span className="text-2xl">▶</span><b>Import video clip</b><small>MP4, MOV, WEBM · max 500 MB</small><input type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" onChange={handleVideo} className="sr-only" /></label>{activeScene.videoName && <div className="rounded-xl border border-fuchsia-300/20 p-3 text-xs"><b className="block break-all">{activeScene.videoName}</b><div className="mt-3"><label className="label">Trim start · {(activeScene.trimStart ?? 0).toFixed(1)}s</label><input className="editor-range" type="range" min="0" max={Math.max(0.5, activeScene.trimEnd ?? activeScene.duration)} step="0.1" value={activeScene.trimStart ?? 0} onChange={e=>patchScene({trimStart:Math.min(Number(e.target.value),Math.max(0,(activeScene.trimEnd??activeScene.duration)-0.1))})}/></div><div className="mt-3"><label className="label">Trim end · {(activeScene.trimEnd ?? activeScene.duration).toFixed(1)}s</label><input className="editor-range" type="range" min={Math.max(0.1,activeScene.trimStart??0)+0.1} max={Math.max(0.5,videoCache.current.get(activeScene.videoUrl??"")?.duration??activeScene.duration)} step="0.1" value={activeScene.trimEnd ?? activeScene.duration} onChange={e=>patchScene({trimEnd:Math.max((activeScene.trimStart??0)+0.1,Number(e.target.value))})}/></div><button onClick={()=>{patchScene({videoUrl:undefined,videoName:undefined,trimStart:undefined,trimEnd:undefined});setStatus("Video removed.");}} className="mt-3 text-rose-300">Remove video</button></div>}<label className="upload-box"><span className="text-2xl">＋</span><b>Upload photo</b><small>PNG, JPG, WEBP</small><input type="file" accept="image/*" onChange={handlePhoto} className="sr-only" /></label>{activeScene.photoName && <div className="rounded-xl bg-white/5 p-3 text-xs text-zinc-300">{activeScene.photoName}<button onClick={() => patchScene({ photoUrl: undefined, photoName: undefined })} className="float-right text-rose-300">Remove</button></div>}<label className="label mt-4">Photo placement</label><select className="editor-select w-full" value={activeScene.photoSide ?? "right"} onChange={(e) => patchScene({ photoSide: e.target.value as Scene["photoSide"] })}><option value="left">Left side</option><option value="right">Right side</option></select></div>}
-            {panel === "Audio" && <div className="space-y-4"><div className="rounded-xl border border-white/10 bg-white/[.03] p-3"><div className="mb-2 flex items-center gap-2"><span className="text-xl text-fuchsia-300">♫</span><div><b className="block text-sm">Music track</b><small className="text-xs text-zinc-500">Local audio file</small></div></div><label className="upload-box"><span className="text-2xl">＋</span><b>Upload audio</b><small>MP3, WAV, M4A (browser support varies)</small><input type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" onChange={handleMusic} className="sr-only" /></label>{musicName && <><p className="mt-3 break-all text-xs text-zinc-300">{musicName}</p><audio key={musicUrl} src={musicUrl} controls preload="metadata" className="mt-3 w-full" /></>}</div><p className="text-xs leading-5 text-zinc-500">Play dabakar music check karein. Timeline preview aur export mein music use hoga. Sirf apna ya licensed audio use karein.</p></div>}
+            {panel === "Audio" && <div className="space-y-4"><div className="rounded-xl border border-white/10 bg-white/[.03] p-3"><div className="mb-2 flex items-center gap-2"><span className="text-xl text-fuchsia-300">♫</span><div><b className="block text-sm">Music track</b><small className="text-xs text-zinc-500">Local audio file</small></div></div><label className="upload-box"><span className="text-2xl">＋</span><b>Upload audio</b><small>MP3, WAV, M4A (browser support varies)</small><input type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" onChange={handleMusic} className="sr-only" /></label>{musicName && <><p className="mt-3 break-all text-xs text-zinc-300">{musicName}</p><audio key={musicUrl} src={musicUrl} controls preload="metadata" className="mt-3 w-full" /></>}<button onClick={generateCaptions} disabled={aiBusy} className="editor-secondary mt-4 w-full disabled:opacity-50">{aiBusy?"Processing…":"Generate word-timed captions"}</button><label className="label mt-4">AI voiceover text</label><textarea className="editor-input min-h-20" value={voiceoverText} onChange={e=>setVoiceoverText(e.target.value)} maxLength={4000} placeholder="Type the narration to speak…"/><button onClick={generateVoiceover} disabled={aiBusy||!voiceoverText.trim()} className="editor-secondary w-full disabled:opacity-50">Generate AI voiceover</button></div><p className="text-xs leading-5 text-zinc-500">AI services require configured provider keys and may incur usage charges. Use only media you own or are licensed to use.</p></div>}
             {panel === "Scenes" && <div className="space-y-3">
               <div className="flex items-center justify-between"><span className="text-xs text-zinc-500">{scenes.length} frames</span><button onClick={addScene} className="editor-secondary">＋ Add scene</button></div>
               {scenes.map((scene, index) => <motion.div layout key={scene.id} className={`scene-card ${scene.id === activeSceneId ? "selected" : ""}`}>
