@@ -27,6 +27,9 @@ const ratioDimensions: Record<AspectRatio, { width: number; height: number }> = 
 const iconByPanel: Record<string, string> = { Templates: "▦", Text: "T", Media: "▧", Audio: "♫", Scenes: "▤" };
 const fonts = ["Anton", "Poppins", "Bebas Neue", "Dancing Script", "Caveat", "Arial", "Georgia"];
 
+function easeOutCubic(value: number) { return 1 - Math.pow(1 - value, 3); }
+function easeOutBack(value: number) { const c1 = 1.70158; const c3 = c1 + 1; return 1 + c3 * Math.pow(value - 1, 3) + c1 * Math.pow(value - 1, 2); }
+
 export default function EditorPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewAudioRef = useRef<HTMLAudioElement>(null);
@@ -147,11 +150,12 @@ export default function EditorPage() {
       ctx.fillText("ADD PHOTO", x + slotWidth / 2, y + slotHeight / 2); ctx.restore();
     }
     scene.layers.forEach((layer) => {
-      const enter = Math.min(1, Math.max(0, elapsed / 0.65));
+      // Animate relative to this scene time, for both preview and canvas export.
+      const enter = Math.min(1, Math.max(0, elapsed / 0.8));
       let alpha = 1; let offsetY = 0; let scale = 1;
-      if (layer.animation === "fade") alpha = enter;
-      if (layer.animation === "slide") offsetY = (1 - enter) * height * 0.055;
-      if (layer.animation === "pop") scale = 0.72 + 0.28 * enter;
+      if (layer.animation === "fade") alpha = easeOutCubic(enter);
+      if (layer.animation === "slide") offsetY = (1 - easeOutCubic(enter)) * height * 0.12;
+      if (layer.animation === "pop") scale = 0.45 + 0.55 * easeOutBack(enter);
       ctx.save(); ctx.globalAlpha = alpha;
       ctx.translate(width * layer.x / 100, height * layer.y / 100 + offsetY);
       ctx.scale(scale, scale); ctx.fillStyle = layer.color; ctx.textAlign = "center"; ctx.textBaseline = "middle";
