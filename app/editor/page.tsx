@@ -67,6 +67,7 @@ export default function EditorPage() {
   const previewAudioRef = useRef<HTMLAudioElement>(null);
   const photoCache = useRef<Map<string, HTMLImageElement>>(new Map());
   const videoCache = useRef<Map<string, HTMLVideoElement>>(new Map());
+  const activeVideoSceneRef = useRef<string | null>(null);
   const ffmpegRef = useRef<FFmpeg | null>(null);
   const animationRef = useRef<number | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -340,9 +341,21 @@ export default function EditorPage() {
     });
   };
 
+  const syncSceneVideo = (scene: Scene, elapsed: number) => {
+    if (activeVideoSceneRef.current !== scene.id) {
+      videoCache.current.forEach(video => video.pause());
+      activeVideoSceneRef.current = scene.id;
+      const video = loadVideo(scene);
+      if (video) { const start = scene.trimStart ?? 0; try { video.currentTime = start; } catch { /* Wait for metadata. */ } void video.play().catch(() => setStatus("Browser could not play this video. Try a supported MP4 or WebM file.")); }
+    }
+    const video = loadVideo(scene);
+    if (video && video.paused && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) void video.play().catch(() => undefined);
+  };
+
   const stopPlayback = () => {
     if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
     animationRef.current = null;
+    videoCache.current.forEach(video => video.pause()); activeVideoSceneRef.current = null;
     const audio = previewAudioRef.current;
     if (audio) { audio.pause(); audio.currentTime = 0; }
     setIsPlaying(false);
@@ -360,6 +373,7 @@ export default function EditorPage() {
       setPlayhead(elapsed);
       let remaining = elapsed; let scene = scenes[0];
       for (const item of scenes) { scene = item; if (remaining < item.duration) break; remaining -= item.duration; }
+      syncSceneVideo(scene, remaining);
       drawScene(scene, remaining, ctx, canvas.width, canvas.height);
       animationRef.current = requestAnimationFrame(frame);
     };
@@ -401,6 +415,7 @@ export default function EditorPage() {
           if (elapsed >= totalDuration) { resolve(); return; }
           let remaining = elapsed; let scene = scenes[0];
           for (const item of scenes) { scene = item; if (remaining < item.duration) break; remaining -= item.duration; }
+          syncSceneVideo(scene, remaining);
           drawScene(scene, remaining, ctx, canvas.width, canvas.height);
           requestAnimationFrame(frame);
         };
