@@ -6,11 +6,14 @@ import { ChangeEvent, CSSProperties, DragEvent, useCallback, useEffect, useMemo,
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import InteractiveCanvasOverlay from "@/components/editor/InteractiveCanvasOverlay";
+import { auth, googleProvider, saveCloudProject } from "@/lib/firebase/client";
+import { signInWithPopup } from "firebase/auth";
 
 type AnimationName = "fade" | "slide" | "pop" | "bounce" | "float" | "spin" | "shake" | "pulse";
 type AspectRatio = "9:16" | "1:1" | "16:9";
 type TextLayer = { id: string; text: string; color: string; fontFamily: string; fontSize: number; x: number; y: number; animation: AnimationName; scale: number; rotation?: number; outlineColor: string; outlineWidth: number; backgroundColor: string };
-type Scene = { id: string; name: string; background: string; duration: number; layers: TextLayer[]; photoUrl?: string; photoName?: string; photoSide?: "left" | "right"; photoX?: number; photoY?: number; photoScale?: number; photoRotation?: number };
+type CaptionWord = { text: string; start: number; end: number };
+type Scene = { id: string; name: string; background: string; duration: number; layers: TextLayer[]; photoUrl?: string; photoName?: string; photoSide?: "left" | "right"; photoX?: number; photoY?: number; photoScale?: number; photoRotation?: number; videoUrl?: string; videoName?: string; trimStart?: number; trimEnd?: number; captions?: CaptionWord[] };
 type ProjectState = { scenes: Scene[]; activeSceneId: string; activeLayerId: string; aspect: AspectRatio };
 
 const makeLayer = (id: string, text: string, color: string, fontFamily: string, fontSize: number, x: number, y: number, animation: AnimationName = "pop"): TextLayer => ({ id, text, color, fontFamily, fontSize, x, y, animation, scale: 1, outlineColor: "#111111", outlineWidth: 0, backgroundColor: "transparent" });
@@ -21,6 +24,7 @@ const starterScenes: Scene[] = [
 ];
 
 type ViralTemplate = { title: string; category: string; description: string; scene: Scene };
+type ViralLayerRow = [text: string, color: string, fontFamily: string, fontSize: number, y: number, animation: AnimationName];
 
 function buildFullReel(template: Scene): Scene[] {
   const base = template.layers;
@@ -36,10 +40,10 @@ function buildFullReel(template: Scene): Scene[] {
     clone("03 · Outro / CTA", "outro", 2.5, [{ text: "FOLLOW FOR MORE ✨", color: base[0]?.color ?? "#ffffff", fontSize: 48, y: 42, animation: "pop" }, { text: title, color: base[1]?.color ?? "#ffffff", fontSize: 34, y: 58, animation: "fade" }])
   ];
 }
-const viralTemplates: ViralTemplate[] = [["Beat Drop Reveal","Trending","Bold intro + reveal","#09090b","#7c3aed",[["WAIT FOR IT","#ffffff","Anton",78,37,"pop"],["THE REVEAL 🔥","#facc15","Anton",54,58,"bounce"]]],["Photo Dump","Photo","Memories in a clean frame","#fce7f3","#c4b5fd",[["little moments","#3b0764","Dancing Script",76,22,"fade"],["BIG MEMORIES","#ffffff","Anton",54,77,"slide"]]],["Cinematic Intro","Cinematic","Dark movie-title look","#020617","#334155",[["YOUR STORY","#f8fafc","Georgia",68,43,"fade"],["A FILM BY YOU","#cbd5e1","Poppins",26,53,"slide"]]],["POV Story","Story","Relatable POV opener","#0f172a","#0e7490",[["POV:","#67e8f9","Anton",92,35,"pop"],["YOU FINALLY DID IT","#ffffff","Poppins",42,52,"slide"]]],["Glow Up","Transformation","Before / after reveal","#18181b","#be185d",[["BEFORE","#fda4af","Anton",72,34,"fade"],["AFTER ✨","#ffffff","Anton",82,58,"pop"]]],["Motivation","Quotes","High-contrast motivation","#111827","#374151",[["NO EXCUSES.","#facc15","Anton",78,39,"pop"],["JUST START.","#ffffff","Anton",66,57,"slide"]]],["Hindi Shayari","Hindi","Poetry / status card","#312e81","#9d174d",[["कुछ बातें","#fef3c7","Poppins",62,38,"fade"],["दिल में रहती हैं…","#ffffff","Poppins",54,54,"float"]]],["Sad Aesthetic","Mood","Soft melancholic mood","#111827","#475569",[["some nights","#e2e8f0","Dancing Script",82,42,"fade"],["feel heavier.","#cbd5e1","Georgia",52,56,"float"]]],["Funny Meme","Meme","Big reaction caption","#fef08a","#fb923c",[["ME: SLEEP EARLY","#18181b","Anton",52,36,"pop"],["ME AT 3 AM 😂","#7f1d1d","Anton",50,58,"shake"]]],["Podcast Clip","Creator","Quote card for talking clips","#18181b","#581c87",[["LET ME TELL YOU","#e879f9","Anton",56,31,"slide"],["ONE IMPORTANT THING…","#ffffff","Poppins",42,47,"fade"]]],["Mini Vlog","Vlog","Daily recap title","#fef3c7","#fdba74",[["a day with me","#7c2d12","Dancing Script",78,36,"pop"],["MINI VLOG ☀","#431407","Anton",48,54,"slide"]]],["Travel Postcard","Travel","Destination title","#0f766e","#bae6fd",[["TAKE ME","#ffffff","Anton",76,38,"pop"],["SOMEWHERE NEW","#083344","Poppins",40,54,"slide"]]],["Fashion Lookbook","Fashion","Editorial clean type","#f5f5f4","#a8a29e",[["YOUR STYLE","#1c1917","Anton",74,38,"fade"],["YOUR RULES","#7f1d1d","Georgia",44,54,"slide"]]],["Product Showcase","Business","Minimal product promo","#eff6ff","#c7d2fe",[["MEET YOUR","#1e1b4b","Poppins",46,34,"fade"],["NEW FAVOURITE","#4338ca","Anton",64,49,"pop"],["AVAILABLE NOW","#312e81","Poppins",26,63,"slide"]]],["Food Reel","Food","Tasty title card","#7f1d1d","#f97316",[["GOOD FOOD","#fff7ed","Anton",82,40,"pop"],["GOOD MOOD 😋","#ffedd5","Poppins",38,57,"bounce"]]],["Study With Me","Study","Study motivation aesthetic","#164e63","#a7f3d0",[["FOCUS MODE","#ecfeff","Anton",72,39,"pop"],["one page at a time.","#083344","Dancing Script",52,57,"float"]]],["Gaming Hype","Gaming","Neon gamer intro","#09090b","#14532d",[["GAME ON","#4ade80","Anton",90,39,"shake"],["LEVEL UP ⚡","#ffffff","Anton",54,58,"pulse"]]],["Event Countdown","Event","Launch / event teaser","#4c0519","#be123c",[["COMING SOON","#ffffff","Anton",76,40,"pop"],["GET READY ✨","#fda4af","Poppins",40,57,"pulse"]]],["Birthday Wishes","Celebration","Bright celebration card","#7e22ce","#ec4899",[["HAPPY BIRTHDAY 🎂","#ffffff","Anton",58,40,"bounce"],["MAKE A WISH","#fef08a","Poppins",40,57,"pop"]]],["Bestie Memories","Friends","Friendship photo story","#fce7f3","#f9a8d4",[["MY PEOPLE","#831843","Anton",68,35,"pop"],["my safe place ♡","#9d174d","Dancing Script",56,54,"float"]]],["Quote of the Day","Quotes","Minimal daily quote","#f5f5f4","#d6d3d1",[["REMEMBER","#292524","Anton",62,36,"fade"],["small steps count.","#7c2d12","Dancing Script",68,53,"slide"]]]].map(([title, category, description, color1, color2, layerRows], index) => ({
+const viralTemplates: ViralTemplate[] = ([[ "Beat Drop Reveal","Trending","Bold intro + reveal","#09090b","#7c3aed",[["WAIT FOR IT","#ffffff","Anton",78,37,"pop"],["THE REVEAL 🔥","#facc15","Anton",54,58,"bounce"]]],["Photo Dump","Photo","Memories in a clean frame","#fce7f3","#c4b5fd",[["little moments","#3b0764","Dancing Script",76,22,"fade"],["BIG MEMORIES","#ffffff","Anton",54,77,"slide"]]],["Cinematic Intro","Cinematic","Dark movie-title look","#020617","#334155",[["YOUR STORY","#f8fafc","Georgia",68,43,"fade"],["A FILM BY YOU","#cbd5e1","Poppins",26,53,"slide"]]],["POV Story","Story","Relatable POV opener","#0f172a","#0e7490",[["POV:","#67e8f9","Anton",92,35,"pop"],["YOU FINALLY DID IT","#ffffff","Poppins",42,52,"slide"]]],["Glow Up","Transformation","Before / after reveal","#18181b","#be185d",[["BEFORE","#fda4af","Anton",72,34,"fade"],["AFTER ✨","#ffffff","Anton",82,58,"pop"]]],["Motivation","Quotes","High-contrast motivation","#111827","#374151",[["NO EXCUSES.","#facc15","Anton",78,39,"pop"],["JUST START.","#ffffff","Anton",66,57,"slide"]]],["Hindi Shayari","Hindi","Poetry / status card","#312e81","#9d174d",[["कुछ बातें","#fef3c7","Poppins",62,38,"fade"],["दिल में रहती हैं…","#ffffff","Poppins",54,54,"float"]]],["Sad Aesthetic","Mood","Soft melancholic mood","#111827","#475569",[["some nights","#e2e8f0","Dancing Script",82,42,"fade"],["feel heavier.","#cbd5e1","Georgia",52,56,"float"]]],["Funny Meme","Meme","Big reaction caption","#fef08a","#fb923c",[["ME: SLEEP EARLY","#18181b","Anton",52,36,"pop"],["ME AT 3 AM 😂","#7f1d1d","Anton",50,58,"shake"]]],["Podcast Clip","Creator","Quote card for talking clips","#18181b","#581c87",[["LET ME TELL YOU","#e879f9","Anton",56,31,"slide"],["ONE IMPORTANT THING…","#ffffff","Poppins",42,47,"fade"]]],["Mini Vlog","Vlog","Daily recap title","#fef3c7","#fdba74",[["a day with me","#7c2d12","Dancing Script",78,36,"pop"],["MINI VLOG ☀","#431407","Anton",48,54,"slide"]]],["Travel Postcard","Travel","Destination title","#0f766e","#bae6fd",[["TAKE ME","#ffffff","Anton",76,38,"pop"],["SOMEWHERE NEW","#083344","Poppins",40,54,"slide"]]],["Fashion Lookbook","Fashion","Editorial clean type","#f5f5f4","#a8a29e",[["YOUR STYLE","#1c1917","Anton",74,38,"fade"],["YOUR RULES","#7f1d1d","Georgia",44,54,"slide"]]],["Product Showcase","Business","Minimal product promo","#eff6ff","#c7d2fe",[["MEET YOUR","#1e1b4b","Poppins",46,34,"fade"],["NEW FAVOURITE","#4338ca","Anton",64,49,"pop"],["AVAILABLE NOW","#312e81","Poppins",26,63,"slide"]]],["Food Reel","Food","Tasty title card","#7f1d1d","#f97316",[["GOOD FOOD","#fff7ed","Anton",82,40,"pop"],["GOOD MOOD 😋","#ffedd5","Poppins",38,57,"bounce"]]],["Study With Me","Study","Study motivation aesthetic","#164e63","#a7f3d0",[["FOCUS MODE","#ecfeff","Anton",72,39,"pop"],["one page at a time.","#083344","Dancing Script",52,57,"float"]]],["Gaming Hype","Gaming","Neon gamer intro","#09090b","#14532d",[["GAME ON","#4ade80","Anton",90,39,"shake"],["LEVEL UP ⚡","#ffffff","Anton",54,58,"pulse"]]],["Event Countdown","Event","Launch / event teaser","#4c0519","#be123c",[["COMING SOON","#ffffff","Anton",76,40,"pop"],["GET READY ✨","#fda4af","Poppins",40,57,"pulse"]]],["Birthday Wishes","Celebration","Bright celebration card","#7e22ce","#ec4899",[["HAPPY BIRTHDAY 🎂","#ffffff","Anton",58,40,"bounce"],["MAKE A WISH","#fef08a","Poppins",40,57,"pop"]]],["Bestie Memories","Friends","Friendship photo story","#fce7f3","#f9a8d4",[["MY PEOPLE","#831843","Anton",68,35,"pop"],["my safe place ♡","#9d174d","Dancing Script",56,54,"float"]]],["Quote of the Day","Quotes","Minimal daily quote","#f5f5f4","#d6d3d1",[["REMEMBER","#292524","Anton",62,36,"fade"],["small steps count.","#7c2d12","Dancing Script",68,53,"slide"]]]] as Array<[string, string, string, string, string, ViralLayerRow[]]>).map(([title, category, description, color1, color2, layerRows], index) => ({
   title, category, description,
   scene: { id: `viral-${index}`, name: title, background: `linear-gradient(135deg, ${color1}, ${color2})`, duration: 3, photoSide: index % 2 ? "left" : "right",
-    layers: layerRows.map((row, layerIndex) => makeLayer(`viral-${index}-${layerIndex}`, row[0], row[1], row[2], row[3], 50, row[4], row[5]))
+    layers: (layerRows as ViralLayerRow[]).map((row: ViralLayerRow, layerIndex: number) => makeLayer(`viral-${index}-${layerIndex}`, row[0], row[1], row[2], row[3], 50, row[4], row[5]))
   }
 }));
 
@@ -64,6 +68,9 @@ export default function EditorPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewAudioRef = useRef<HTMLAudioElement>(null);
   const photoCache = useRef<Map<string, HTMLImageElement>>(new Map());
+  const videoCache = useRef<Map<string, HTMLVideoElement>>(new Map());
+  const mediaFiles = useRef<Map<string, File>>(new Map());
+  const activeVideoSceneRef = useRef<string | null>(null);
   const ffmpegRef = useRef<FFmpeg | null>(null);
   const animationRef = useRef<number | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -78,14 +85,54 @@ export default function EditorPage() {
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [musicUrl, setMusicUrl] = useState("");
   const [musicName, setMusicName] = useState("");
+  const [musicVolume, setMusicVolume] = useState(0.8);
+  const [audioTrimStart, setAudioTrimStart] = useState(0);
+  const [audioTrimEnd, setAudioTrimEnd] = useState(0);
+  const [audioFadeIn, setAudioFadeIn] = useState(1);
+  const [audioFadeOut, setAudioFadeOut] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportQuality, setExportQuality] = useState<"720p" | "1080p">("1080p");
+  const [exportFps, setExportFps] = useState<30 | 60>(30);
   const [playhead, setPlayhead] = useState(0);
   const [status, setStatus] = useState("All changes are saved in this session");
+  const [projectName, setProjectName] = useState("Untitled Reel");
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudProjectId, setCloudProjectId] = useState<string | undefined>(undefined);
+  const [voiceoverText, setVoiceoverText] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [downloadUrl, setDownloadUrl] = useState("");
   const [history, setHistory] = useState<ProjectState[]>([]);
   const [future, setFuture] = useState<ProjectState[]>([]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || new URLSearchParams(window.location.search).get("load") !== "cloud") return;
+    try {
+      const raw = sessionStorage.getItem("reelmind:pending-project");
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { id?: string; title?: string; data?: { scenes?: Scene[]; aspect?: AspectRatio } };
+      if (Array.isArray(saved.data?.scenes) && saved.data.scenes.length) {
+        setScenes(saved.data.scenes); setActiveSceneId(saved.data.scenes[0].id); setActiveLayerId(saved.data.scenes[0].layers?.[0]?.id ?? "");
+        if (saved.data.aspect && saved.data.aspect in ratioDimensions) setAspect(saved.data.aspect);
+        setProjectName(saved.title ?? "Untitled Reel"); setCloudProjectId(saved.id); setStatus("Cloud project loaded. Local media URLs may need re-uploading.");
+      }
+      sessionStorage.removeItem("reelmind:pending-project");
+      window.history.replaceState({}, "", "/editor");
+    } catch { setStatus("Could not restore cloud project data."); }
+  }, []);
+
+  const saveToCloud = async () => {
+    setCloudBusy(true);
+    try {
+      if (!auth) throw new Error("Firebase not configured. Set NEXT_PUBLIC_FIREBASE_* variables in .env.local.");
+      if (!auth.currentUser) await signInWithPopup(auth, googleProvider);
+      const savedId = await saveCloudProject(projectName, { scenes, aspect, formatVersion: 1 }, cloudProjectId);
+      setCloudProjectId(savedId);
+      setStatus("Project saved to your cloud workspace.");
+    } catch (error) { setStatus(error instanceof Error ? error.message : "Cloud save failed."); }
+    finally { setCloudBusy(false); }
+  };
 
   const activeScene = scenes.find((scene) => scene.id === activeSceneId) ?? scenes[0];
   const activeLayer = activeScene.layers.find((layer) => layer.id === activeLayerId) ?? activeScene.layers[0];
@@ -144,6 +191,17 @@ export default function EditorPage() {
     return image;
   }, []);
 
+  const loadVideo = useCallback((scene: Scene) => {
+    if (!scene.videoUrl) return null;
+    const existing = videoCache.current.get(scene.videoUrl);
+    if (existing) return existing;
+    const video = document.createElement("video");
+    video.src = scene.videoUrl; video.preload = "auto"; video.muted = true; video.playsInline = true;
+    video.addEventListener("loadedmetadata", () => { if (scene.trimStart) video.currentTime = scene.trimStart; });
+    videoCache.current.set(scene.videoUrl, video);
+    return video;
+  }, []);
+
   const colorFromGradient = (value: string) => value.match(/#[0-9a-fA-F]{3,8}/g) ?? ["#32124a", "#9d174d"];
   const fillBackground = useCallback((ctx: CanvasRenderingContext2D, scene: Scene, width: number, height: number) => {
     const colors = colorFromGradient(scene.background);
@@ -158,6 +216,14 @@ export default function EditorPage() {
   const drawScene = useCallback((scene: Scene, elapsed: number, ctx: CanvasRenderingContext2D, width: number, height: number) => {
     ctx.clearRect(0, 0, width, height);
     fillBackground(ctx, scene, width, height);
+    const video = loadVideo(scene);
+    if (video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      const start = scene.trimStart ?? 0;
+      const end = scene.trimEnd ?? video.duration;
+      const target = Math.min(Math.max(start + elapsed, start), Math.max(start, end - 0.04));
+      if (Math.abs(video.currentTime - target) > 0.35 && video.paused) { try { video.currentTime = target; } catch { /* Metadata may still be loading. */ } }
+      try { ctx.drawImage(video, 0, 0, width, height); } catch { /* Keep the scene background until a frame is ready. */ }
+    }
     const image = loadPhoto(scene);
     if (image?.complete && image.naturalWidth) {
       const maxWidth = width * 0.54;
@@ -173,7 +239,7 @@ export default function EditorPage() {
       ctx.translate(photoCenterX, photoCenterY); ctx.rotate(((scene.photoRotation ?? 0) * Math.PI) / 180); ctx.scale(photoScale, photoScale);
       ctx.drawImage(image, -imageWidth / 2, -imageHeight / 2, imageWidth, imageHeight);
       ctx.restore();
-    } else if (!scene.photoUrl) {
+    } else if (!scene.photoUrl && !scene.videoUrl) {
       // Empty image slot: subtle dashed frame signals where the creator can place a photo.
       const slotWidth = width * 0.34;
       const slotHeight = height * 0.36;
@@ -207,13 +273,34 @@ export default function EditorPage() {
       lines.forEach((line, index) => { const lineY = (index - (lines.length - 1) / 2) * lineHeight; if (layer.backgroundColor && layer.backgroundColor !== "transparent") { const metrics = ctx.measureText(line); ctx.fillStyle = layer.backgroundColor; ctx.fillRect(-metrics.width / 2 - size * 0.16, lineY - lineHeight * 0.43, metrics.width + size * 0.32, lineHeight * 0.86); ctx.fillStyle = layer.color; } if (layer.outlineWidth > 0) { ctx.lineJoin = "round"; ctx.strokeStyle = layer.outlineColor; ctx.lineWidth = layer.outlineWidth * (width / 1080); ctx.strokeText(line, 0, lineY, width * 0.88); } ctx.fillText(line, 0, lineY, width * 0.88); });
       ctx.restore();
     });
-  }, [fillBackground, loadPhoto]);
+    const activeWord = scene.captions?.find(word => elapsed >= word.start && elapsed <= word.end);
+    if (activeWord) {
+      ctx.save(); ctx.font = `900 ${Math.max(24, width * 0.055)}px Poppins, Arial`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const caption = activeWord.text.trim(); const captionWidth = Math.min(width * 0.9, ctx.measureText(caption).width + width * 0.08);
+      ctx.fillStyle = "rgba(0,0,0,.78)"; ctx.fillRect((width-captionWidth)/2, height*0.79, captionWidth, height*0.075);
+      ctx.fillStyle = "#facc15"; ctx.fillText(caption, width/2, height*0.827, width*0.86); ctx.restore();
+    }
+  }, [fillBackground, loadPhoto, loadVideo]);
 
   useEffect(() => {
     const canvas = canvasRef.current; const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx || isPlaying || isExporting) return;
     drawScene(activeScene, 1, ctx, canvas.width, canvas.height);
   }, [activeScene, aspect, drawScene, isExporting, isPlaying]);
+
+  useEffect(() => {
+    const audio = previewAudioRef.current;
+    if (!audio) return;
+    audio.volume = musicVolume;
+    const syncAudio = () => {
+      if (audioTrimEnd > audioTrimStart && audio.currentTime >= audioTrimEnd) audio.currentTime = audioTrimStart;
+      const fadeUp = audioFadeIn > 0 ? Math.min(1, Math.max(0, (audio.currentTime - audioTrimStart) / audioFadeIn)) : 1;
+      const fadeDown = audioFadeOut > 0 && audioTrimEnd > audioTrimStart ? Math.min(1, Math.max(0, (audioTrimEnd - audio.currentTime) / audioFadeOut)) : 1;
+      audio.volume = musicVolume * Math.min(fadeUp, fadeDown);
+    };
+    audio.addEventListener("timeupdate", syncAudio);
+    return () => audio.removeEventListener("timeupdate", syncAudio);
+  }, [musicUrl, musicVolume, audioTrimStart, audioTrimEnd, audioFadeIn, audioFadeOut]);
 
   useEffect(() => {
     const link = document.createElement("link");
@@ -248,6 +335,18 @@ export default function EditorPage() {
     setPanel("Characters");
     setStatus(`${character} character added. Press Play to preview its animation.`);
   };
+  const handleVideo = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]; if (!file) return;
+    if (!file.type.startsWith("video/") && !/\\.(mp4|mov|webm)$/i.test(file.name)) { setStatus("Choose an MP4, MOV or WebM video."); return; }
+    if (file.size > 500 * 1024 * 1024) { setStatus("Video is over the 500 MB local import limit."); return; }
+    const url = URL.createObjectURL(file);
+    mediaFiles.current.set(activeSceneId, file);
+    remember();
+    setScenes(items => items.map(scene => scene.id === activeSceneId ? { ...scene, videoUrl: url, videoName: file.name, trimStart: 0, trimEnd: undefined } : scene));
+    const video = document.createElement("video"); video.src = url; video.preload = "metadata"; video.onloadedmetadata = () => setScenes(items => items.map(scene => scene.id === activeSceneId ? { ...scene, duration: Math.max(0.5, Math.min(30, video.duration || 3)), trimEnd: video.duration } : scene)); videoCache.current.set(url, video);
+    setStatus(`Video imported: ${file.name}. Set trim points in Media.`);
+  };
+
   const handlePhoto = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
     const url = URL.createObjectURL(file); const image = new Image();
@@ -259,9 +358,31 @@ export default function EditorPage() {
     image.src = url;
     patchScene({ photoUrl: url, photoName: file.name });
   };
+  const generateCaptions = async () => {
+    const file = mediaFiles.current.get(activeSceneId);
+    if (!file) { setStatus("First import a video or upload an audio file for this scene."); return; }
+    setAiBusy(true); setStatus("Generating word-timed captions…");
+    try { const form = new FormData(); form.set("file", file); const response = await fetch("/api/captions", { method: "POST", body: form }); const data = await response.json(); if (!response.ok) throw new Error(data.error ?? "Caption generation failed");
+      const words = Array.isArray(data.words) ? data.words as CaptionWord[] : [];
+      if (!words.length) throw new Error("No word timestamps returned. Try a clearer audio/video file.");
+      remember(); setScenes(items => items.map(scene => scene.id === activeSceneId ? { ...scene, captions: words } : scene)); setStatus(`Generated ${words.length} timed words. Captions appear during preview and export.`);
+    } catch(error) { setStatus(error instanceof Error ? error.message : "Caption generation failed."); }
+    finally { setAiBusy(false); }
+  };
+  const generateVoiceover = async () => {
+    if (!voiceoverText.trim()) { setStatus("Enter voiceover text first."); return; }
+    setAiBusy(true); setStatus("Generating AI voiceover…");
+    try { const response = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: voiceoverText }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error ?? "TTS failed");
+      const binary = atob(data.audioBase64); const bytes = new Uint8Array(binary.length); for(let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([bytes], { type: data.mimeType ?? "audio/wav" })); if(musicUrl) URL.revokeObjectURL(musicUrl); setMusicUrl(url); setMusicName("AI voiceover.wav"); setStatus("AI voiceover generated and loaded as the current audio track.");
+    } catch(error) { setStatus(error instanceof Error ? error.message : "Voiceover generation failed."); }
+    finally { setAiBusy(false); }
+  };
+
   const handleMusic = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
     if (musicUrl) URL.revokeObjectURL(musicUrl);
+    mediaFiles.current.set(activeSceneId, file);
     const nextUrl = URL.createObjectURL(file);
     setMusicUrl(nextUrl); setMusicName(file.name); setDownloadUrl("");
     setStatus(`Music loaded: ${file.name}. Preview ke liye Play dabayein.`);
@@ -278,11 +399,27 @@ export default function EditorPage() {
     });
   };
 
+  const syncSceneVideo = (scene: Scene, elapsed: number) => {
+    if (activeVideoSceneRef.current !== scene.id) {
+      videoCache.current.forEach(video => video.pause());
+      activeVideoSceneRef.current = scene.id;
+      const video = loadVideo(scene);
+      if (video) { const start = scene.trimStart ?? 0; try { video.currentTime = start; } catch { /* Wait for metadata. */ } void video.play().catch(() => setStatus("Browser could not play this video. Try a supported MP4 or WebM file.")); }
+    }
+    const video = loadVideo(scene);
+    if (video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      const trimEnd = scene.trimEnd ?? video.duration;
+      if (trimEnd > 0 && video.currentTime >= trimEnd) { video.pause(); try { video.currentTime = Math.max(scene.trimStart ?? 0, trimEnd - 0.04); } catch { /* Ignore until metadata is ready. */ } }
+      else if (video.paused) void video.play().catch(() => undefined);
+    }
+  };
+
   const stopPlayback = () => {
     if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
     animationRef.current = null;
+    videoCache.current.forEach(video => video.pause()); activeVideoSceneRef.current = null;
     const audio = previewAudioRef.current;
-    if (audio) { audio.pause(); audio.currentTime = 0; }
+    if (audio) { audio.pause(); audio.currentTime = audioTrimStart; }
     setIsPlaying(false);
   };
   const playPreview = () => {
@@ -290,7 +427,7 @@ export default function EditorPage() {
     const canvas = canvasRef.current; const ctx = canvas?.getContext("2d"); if (!canvas || !ctx) return;
     setIsPlaying(true);
     const audio = previewAudioRef.current;
-    if (audio && musicUrl) { audio.currentTime = 0; void audio.play().catch(() => setStatus("Browser ne music playback roka. Audio panel se Play dabakar allow karein.")); }
+    if (audio && musicUrl) { audio.volume = musicVolume; audio.currentTime = audioTrimStart; void audio.play().catch(() => setStatus("Browser ne music playback roka. Audio panel se Play dabakar allow karein.")); }
     const started = performance.now();
     const frame = (now: number) => {
       const elapsed = (now - started) / 1000;
@@ -298,6 +435,7 @@ export default function EditorPage() {
       setPlayhead(elapsed);
       let remaining = elapsed; let scene = scenes[0];
       for (const item of scenes) { scene = item; if (remaining < item.duration) break; remaining -= item.duration; }
+      syncSceneVideo(scene, remaining);
       drawScene(scene, remaining, ctx, canvas.width, canvas.height);
       animationRef.current = requestAnimationFrame(frame);
     };
@@ -310,36 +448,49 @@ export default function EditorPage() {
     if (!("MediaRecorder" in window) || !canvas.captureStream) { setStatus("Is browser mein canvas recording support nahi hai. Latest Chrome/Edge try karein."); return; }
     setIsExporting(true); setProgress(0); setDownloadUrl(""); setStatus("Browser mein video record ho raha hai…");
     let stream: MediaStream | undefined;
+    let renderCanvas: HTMLCanvasElement | undefined;
     let audioContext: AudioContext | undefined;
     let audioSource: MediaElementAudioSourceNode | undefined;
+    let audioGain: GainNode | undefined;
     let musicElement: HTMLAudioElement | undefined;
     let recorder: MediaRecorder | undefined;
     try {
-      stream = canvas.captureStream(30);
+      const exportCanvas = document.createElement("canvas");
+      renderCanvas = exportCanvas;
+      const base = exportQuality === "720p" ? 720 : 1080;
+      exportCanvas.width = aspect === "16:9" ? Math.round(base * 16 / 9) : base;
+      exportCanvas.height = aspect === "9:16" ? Math.round(base * 16 / 9) : aspect === "16:9" ? base : base;
+      stream = exportCanvas.captureStream(exportFps);
+      if (!stream) throw new Error("Could not capture export canvas.");
       if (musicUrl) {
-        audioContext = new AudioContext(); musicElement = new Audio(musicUrl); musicElement.loop = true;
-        audioSource = audioContext.createMediaElementSource(musicElement);
+        audioContext = new AudioContext(); musicElement = new Audio(musicUrl); musicElement.loop = false; musicElement.currentTime = audioTrimStart;
+        audioSource = audioContext.createMediaElementSource(musicElement); audioGain = audioContext.createGain(); audioGain.gain.value = 0;
+        audioSource.connect(audioGain);
         const destination = audioContext.createMediaStreamDestination();
-        audioSource.connect(destination); audioSource.connect(audioContext.destination);
-        destination.stream.getAudioTracks().forEach((track) => stream.addTrack(track));
+        audioGain.connect(destination); audioGain.connect(audioContext.destination);
+        musicElement.ontimeupdate = () => { if (audioTrimEnd > audioTrimStart && musicElement && musicElement.currentTime >= audioTrimEnd) musicElement.currentTime = audioTrimStart; };
+        destination.stream.getAudioTracks().forEach((track) => stream?.addTrack(track));
         await audioContext.resume();
       }
       const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") ? "video/webm;codecs=vp9,opus" : "video/webm";
       recorder = new MediaRecorder(stream, { mimeType }); recorderRef.current = recorder; chunksRef.current = [];
       recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
-      const recorded = new Promise<Blob>((resolve, reject) => { recorder.onerror = () => reject(new Error("Browser recording failed.")); recorder.onstop = () => resolve(new Blob(chunksRef.current, { type: "video/webm" })); });
+      const activeRecorder = recorder;
+      const recorded = new Promise<Blob>((resolve, reject) => { activeRecorder.onerror = () => reject(new Error("Browser recording failed.")); activeRecorder.onstop = () => resolve(new Blob(chunksRef.current, { type: "video/webm" })); });
       await musicElement?.play().catch(() => setStatus("Music autoplay block hua; export bina music ke ho sakta hai."));
       recorder.start(250);
-      const ctx = canvas.getContext("2d"); if (!ctx) throw new Error("Canvas context unavailable.");
+      const ctx = exportCanvas.getContext("2d"); if (!ctx) throw new Error("Export canvas context unavailable.");
       const started = performance.now();
       await new Promise<void>((resolve) => {
         const frame = (now: number) => {
           const elapsed = (now - started) / 1000;
+          if (audioGain) { const fadeUp = audioFadeIn > 0 ? Math.min(1, elapsed / audioFadeIn) : 1; const remaining = totalDuration - elapsed; const fadeDown = audioFadeOut > 0 ? Math.min(1, remaining / audioFadeOut) : 1; audioGain.gain.value = musicVolume * Math.max(0, Math.min(fadeUp, fadeDown)); }
           setProgress(Math.min(60, Math.round(elapsed / totalDuration * 60))); setPlayhead(Math.min(elapsed, totalDuration));
           if (elapsed >= totalDuration) { resolve(); return; }
           let remaining = elapsed; let scene = scenes[0];
           for (const item of scenes) { scene = item; if (remaining < item.duration) break; remaining -= item.duration; }
-          drawScene(scene, remaining, ctx, canvas.width, canvas.height);
+          syncSceneVideo(scene, remaining);
+          drawScene(scene, remaining, ctx, exportCanvas.width, exportCanvas.height);
           requestAnimationFrame(frame);
         };
         requestAnimationFrame(frame);
@@ -384,14 +535,14 @@ export default function EditorPage() {
       <header className="editor-topbar">
         <div className="flex min-w-0 items-center gap-3">
           <Link href="/" aria-label="Back to home" className="editor-logo">R</Link>
-          <div className="min-w-0"><div className="truncate text-sm font-extrabold tracking-tight">ReelMind <span className="text-fuchsia-300">AI</span></div><div className="hidden text-[10px] text-zinc-500 sm:block">Untitled project · Draft</div></div>
+          <div className="min-w-0"><div className="truncate text-sm font-extrabold tracking-tight">ReelMind <span className="text-fuchsia-300">AI</span></div><input aria-label="Project name" value={projectName} onChange={(e) => setProjectName(e.target.value.slice(0,120))} className="mt-1 w-36 bg-transparent text-[10px] text-zinc-400 outline-none sm:w-48" /></div>
         </div>
         <div className="flex items-center gap-2">
           <label className="sr-only" htmlFor="aspectRatio">Canvas ratio</label>
           <select id="aspectRatio" value={aspect} onChange={(e) => { remember(); setAspect(e.target.value as AspectRatio); }} className="editor-select hidden sm:block"><option>9:16</option><option>1:1</option><option>16:9</option></select>
           <button title="Undo" onClick={undo} disabled={!history.length} className="editor-tool-btn">↶</button>
           <button title="Redo" onClick={redo} disabled={!future.length} className="editor-tool-btn">↷</button>
-          <button onClick={generateVideo} disabled={isExporting || isPlaying} className="editor-export">{isExporting ? "Exporting…" : "↥ Export"}</button>
+          <Link href="/projects" className="hidden rounded-lg border border-white/10 px-3 py-2 text-xs sm:inline-flex">Projects</Link><button onClick={saveToCloud} disabled={cloudBusy} className="rounded-lg border border-fuchsia-300/20 px-3 py-2 text-xs text-fuchsia-100 disabled:opacity-50">{cloudBusy ? "Saving…" : "Save cloud"}</button><select aria-label="Export resolution" value={exportQuality} onChange={e=>setExportQuality(e.target.value as "720p"|"1080p")} className="editor-select hidden lg:block"><option value="720p">720p</option><option value="1080p">1080p</option></select><select aria-label="Export frame rate" value={exportFps} onChange={e=>setExportFps(Number(e.target.value) as 30|60)} className="editor-select hidden lg:block"><option value={30}>30 FPS</option><option value={60}>60 FPS</option></select><button onClick={generateVideo} disabled={isExporting || isPlaying} className="editor-export">{isExporting ? "Exporting…" : "↥ Export"}</button>
         </div>
       </header>
 
@@ -412,8 +563,8 @@ export default function EditorPage() {
               <p className="text-xs leading-5 text-zinc-500">Trend-inspired original layouts, not a guarantee of virality. Use your own or licensed photos, clips and audio.</p>
             </div>}{panel === "Text" && <div className="space-y-3"><button onClick={addText} className="editor-secondary w-full">＋ Add text layer</button>{activeScene.layers.map((layer) => <button key={layer.id} onClick={() => setActiveLayerId(layer.id)} className={`layer-list-item ${activeLayerId === layer.id ? "selected" : ""}`}><span className="font-bold">T</span><span className="truncate text-left">{layer.text.replaceAll("\n", " ") || "Text layer"}</span></button>)}</div>}
             {panel === "Characters" && <div className="space-y-4"><div className="rounded-xl border border-fuchsia-400/20 bg-fuchsia-400/5 p-3"><b className="text-sm">Animated characters</b><p className="mt-1 text-xs leading-5 text-zinc-400">Choose a character to add it to the active scene. Select it, choose an animation, then press Play.</p></div>{characterPacks.map((pack) => <section key={pack.title}><h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-zinc-400">{pack.title}</h3><div className="grid grid-cols-4 gap-2">{pack.items.map((character) => <button key={character} title={`Add ${character}`} onClick={() => addCharacter(character)} className="flex aspect-square items-center justify-center rounded-xl border border-white/10 bg-white/[.04] text-2xl transition hover:border-fuchsia-400/60 hover:bg-fuchsia-400/10">{character}</button>)}</div></section>)}</div>}
-            {panel === "Media" && <div className="space-y-4"><p className="text-xs leading-5 text-zinc-400">Selected scene mein apni image add karo. Template ke empty photo slot mein image fit hogi.</p><label className="upload-box"><span className="text-2xl">＋</span><b>Upload photo</b><small>PNG, JPG, WEBP</small><input type="file" accept="image/*" onChange={handlePhoto} className="sr-only" /></label>{activeScene.photoName && <div className="rounded-xl bg-white/5 p-3 text-xs text-zinc-300">{activeScene.photoName}<button onClick={() => patchScene({ photoUrl: undefined, photoName: undefined })} className="float-right text-rose-300">Remove</button></div>}<label className="label mt-4">Photo placement</label><select className="editor-select w-full" value={activeScene.photoSide ?? "right"} onChange={(e) => patchScene({ photoSide: e.target.value as Scene["photoSide"] })}><option value="left">Left side</option><option value="right">Right side</option></select></div>}
-            {panel === "Audio" && <div className="space-y-4"><div className="rounded-xl border border-white/10 bg-white/[.03] p-3"><div className="mb-2 flex items-center gap-2"><span className="text-xl text-fuchsia-300">♫</span><div><b className="block text-sm">Music track</b><small className="text-xs text-zinc-500">Local audio file</small></div></div><label className="upload-box"><span className="text-2xl">＋</span><b>Upload audio</b><small>MP3, WAV, M4A (browser support varies)</small><input type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" onChange={handleMusic} className="sr-only" /></label>{musicName && <><p className="mt-3 break-all text-xs text-zinc-300">{musicName}</p><audio key={musicUrl} src={musicUrl} controls preload="metadata" className="mt-3 w-full" /></>}</div><p className="text-xs leading-5 text-zinc-500">Play dabakar music check karein. Timeline preview aur export mein music use hoga. Sirf apna ya licensed audio use karein.</p></div>}
+            {panel === "Media" && <div className="space-y-4"><p className="text-xs leading-5 text-zinc-400">Add a video clip or photo to this scene. Local media remains in this browser session.</p><label className="upload-box"><span className="text-2xl">▶</span><b>Import video clip</b><small>MP4, MOV, WEBM · max 500 MB</small><input type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" onChange={handleVideo} className="sr-only" /></label>{activeScene.videoName && <div className="rounded-xl border border-fuchsia-300/20 p-3 text-xs"><b className="block break-all">{activeScene.videoName}</b><div className="mt-3"><label className="label">Trim start · {(activeScene.trimStart ?? 0).toFixed(1)}s</label><input className="editor-range" type="range" min="0" max={Math.max(0.5, activeScene.trimEnd ?? activeScene.duration)} step="0.1" value={activeScene.trimStart ?? 0} onChange={e=>patchScene({trimStart:Math.min(Number(e.target.value),Math.max(0,(activeScene.trimEnd??activeScene.duration)-0.1))})}/></div><div className="mt-3"><label className="label">Trim end · {(activeScene.trimEnd ?? activeScene.duration).toFixed(1)}s</label><input className="editor-range" type="range" min={Math.max(0.1,activeScene.trimStart??0)+0.1} max={Math.max(0.5,videoCache.current.get(activeScene.videoUrl??"")?.duration??activeScene.duration)} step="0.1" value={activeScene.trimEnd ?? activeScene.duration} onChange={e=>patchScene({trimEnd:Math.max((activeScene.trimStart??0)+0.1,Number(e.target.value))})}/></div><button onClick={()=>{patchScene({videoUrl:undefined,videoName:undefined,trimStart:undefined,trimEnd:undefined});setStatus("Video removed.");}} className="mt-3 text-rose-300">Remove video</button></div>}<label className="upload-box"><span className="text-2xl">＋</span><b>Upload photo</b><small>PNG, JPG, WEBP</small><input type="file" accept="image/*" onChange={handlePhoto} className="sr-only" /></label>{activeScene.photoName && <div className="rounded-xl bg-white/5 p-3 text-xs text-zinc-300">{activeScene.photoName}<button onClick={() => patchScene({ photoUrl: undefined, photoName: undefined })} className="float-right text-rose-300">Remove</button></div>}<label className="label mt-4">Photo placement</label><select className="editor-select w-full" value={activeScene.photoSide ?? "right"} onChange={(e) => patchScene({ photoSide: e.target.value as Scene["photoSide"] })}><option value="left">Left side</option><option value="right">Right side</option></select></div>}
+            {panel === "Audio" && <div className="space-y-4"><div className="rounded-xl border border-white/10 bg-white/[.03] p-3"><div className="mb-2 flex items-center gap-2"><span className="text-xl text-fuchsia-300">♫</span><div><b className="block text-sm">Music & Bollywood songs</b><small className="text-xs text-zinc-500">Upload a song or background track from your device</small></div></div><label className="upload-box"><span className="text-2xl">＋</span><b>＋ Add song / audio</b><small>Bollywood, Hindi, instrumental · MP3, WAV, M4A</small><input type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" onChange={handleMusic} className="sr-only" /></label>{musicName && <><p className="mt-3 break-all text-xs text-zinc-300">{musicName}</p><audio key={musicUrl} src={musicUrl} controls preload="metadata" className="mt-3 w-full" onLoadedMetadata={e=>{if(!audioTrimEnd) setAudioTrimEnd(e.currentTarget.duration||0);e.currentTarget.volume=musicVolume;}} onTimeUpdate={e=>{const a=e.currentTarget;if(audioTrimEnd>audioTrimStart&&a.currentTime>=audioTrimEnd)a.currentTime=audioTrimStart;const up=audioFadeIn>0?Math.min(1,Math.max(0,(a.currentTime-audioTrimStart)/audioFadeIn)):1;const down=audioFadeOut>0&&audioTrimEnd>audioTrimStart?Math.min(1,Math.max(0,(audioTrimEnd-a.currentTime)/audioFadeOut)):1;a.volume=musicVolume*Math.min(up,down);}} /></>}<div className="mt-4 space-y-3"><label className="label">Volume · {Math.round(musicVolume*100)}%</label><input className="editor-range" type="range" min="0" max="1" step="0.05" value={musicVolume} onChange={e=>setMusicVolume(Number(e.target.value))}/><label className="label">Audio trim start · {audioTrimStart.toFixed(1)}s</label><input className="editor-range" type="range" min="0" max={Math.max(1,audioTrimEnd||60)} step="0.1" value={audioTrimStart} onChange={e=>setAudioTrimStart(Math.min(Number(e.target.value),Math.max(0,audioTrimEnd-0.1)))}/><label className="label">Audio trim end · {audioTrimEnd.toFixed(1)}s</label><input className="editor-range" type="range" min={Math.max(0.1,audioTrimStart+0.1)} max={Math.max(1,previewAudioRef.current?.duration||audioTrimEnd||60)} step="0.1" value={audioTrimEnd||1} onChange={e=>setAudioTrimEnd(Number(e.target.value))}/><div className="grid grid-cols-2 gap-3"><label className="label">Fade in · {audioFadeIn}s<input className="editor-range mt-2" type="range" min="0" max="5" step="0.5" value={audioFadeIn} onChange={e=>setAudioFadeIn(Number(e.target.value))}/></label><label className="label">Fade out · {audioFadeOut}s<input className="editor-range mt-2" type="range" min="0" max="5" step="0.5" value={audioFadeOut} onChange={e=>setAudioFadeOut(Number(e.target.value))}/></label></div></div><button onClick={generateCaptions} disabled={aiBusy} className="editor-secondary mt-4 w-full disabled:opacity-50">{aiBusy?"Processing…":"Generate word-timed captions"}</button><label className="label mt-4">AI voiceover text</label><textarea className="editor-input min-h-20" value={voiceoverText} onChange={e=>setVoiceoverText(e.target.value)} maxLength={4000} placeholder="Type the narration to speak…"/><button onClick={generateVoiceover} disabled={aiBusy||!voiceoverText.trim()} className="editor-secondary w-full disabled:opacity-50">Generate AI voiceover</button></div><p className="text-xs leading-5 text-zinc-500">Tip: apne device se legally downloaded/licensed Bollywood ya Hindi song upload karein. Copyrighted songs app ke saath preloaded nahi hain. YouTube par publish karne se pehle music rights/license check karein. AI services require configured provider keys and may incur usage charges.</p></div>}
             {panel === "Scenes" && <div className="space-y-3">
               <div className="flex items-center justify-between"><span className="text-xs text-zinc-500">{scenes.length} frames</span><button onClick={addScene} className="editor-secondary">＋ Add scene</button></div>
               {scenes.map((scene, index) => <motion.div layout key={scene.id} className={`scene-card ${scene.id === activeSceneId ? "selected" : ""}`}>
@@ -462,7 +613,7 @@ export default function EditorPage() {
             {scenes.map((scene, index) => <button draggable key={scene.id} onDragStart={() => { dragSceneId.current = scene.id; }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => reorderScene(e, scene.id)} onClick={() => { setActiveSceneId(scene.id); setActiveLayerId(scene.layers[0]?.id ?? ""); let before = 0; for (let i = 0; i < index; i++) before += scenes[i].duration; setPlayhead(before); }} style={{ flex: `${scene.duration} 1 0%`, background: scene.background }} className={`timeline-scene ${scene.id === activeSceneId ? "active" : ""}`}><span className="timeline-scene-number">{index + 1}</span><span className="timeline-scene-text">{scene.layers.map((layer) => layer.text).join(" · ")}</span><span className="timeline-scene-duration">{scene.duration}s</span></button>)}
             <div className="playhead" style={{ left: `${Math.min(100, playhead / Math.max(totalDuration, 1) * 100)}%` }}><span /></div>
           </div>
-          <div className="audio-track"><span className="audio-track-label">♫ {musicName || "Music track — upload audio"}</span>{musicUrl && <span className="audio-wave">▂▅▃▇▅▂▆▃▅▇▂▅▃▆▅▂▇▃▅▂▆▃▅▇▂▅▃▆▅▂▇▃▅▂▆▃▅▇</span>}</div>
+          <div className="audio-track"><span className="audio-track-label">▶ Video · {scenes.filter(scene=>scene.videoName).length ? scenes.filter(scene=>scene.videoName).map(scene=>scene.videoName).join(", ") : "Import a clip from Media"}</span></div><div className="audio-track"><span className="audio-track-label">T Text overlays · {scenes.reduce((n,scene)=>n+scene.layers.length,0)} layers</span></div><div className="audio-track"><span className="audio-track-label">♫ {musicName || "Music track — upload audio"}</span>{musicUrl && <span className="audio-wave">▂▅▃▇▅▂▆▃▅▇▂▅▃▆▅▂▇▃▅▂▆▃▅▇▂▅▃▆▅▂▇▃▅▂▆▃▅▇</span>}</div>
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px] text-zinc-600"><span>{status}</span>{isExporting && <span>{progress}%</span>}{downloadUrl && <a href={downloadUrl} download="reelmind-reel.mp4" className="rounded-lg bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-200">↓ Download MP4</a>}</div>
         {isExporting && <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/10"><div className="h-full bg-gradient-to-r from-violet-500 to-pink-500 transition-all" style={{ width: `${progress}%` }} /></div>}

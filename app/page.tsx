@@ -57,6 +57,12 @@ export default function HomePage() {
         </motion.div>
       </section>
 
+      <section className="mx-auto max-w-7xl px-5 pb-16 md:px-8"><div className="mb-6"><p className="text-sm font-bold uppercase tracking-[.2em] text-fuchsia-300">Creator suite</p><h2 className="mt-2 text-3xl font-black">Choose your workspace</h2></div><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[
+ {href:"/editor",icon:"▧",title:"Reel Maker",text:"Compose scenes, text, photos and browser-based exports."},
+ {href:"/meme-maker",icon:"😂",title:"Meme Maker",text:"Customize original meme layouts and export PNG."},
+ {href:"/ai-reel",icon:"✦",title:"AI Script Generator",text:"Turn a topic into a three-scene reel brief with Gemini."},
+ {href:"/ai-character-studio",icon:"🎭",title:"AI Character Studio",text:"Generate original character portraits and backgrounds."}
+].map(card=><Link key={card.href} href={card.href} className="glass rounded-2xl p-5 transition hover:-translate-y-1 hover:border-fuchsia-300/40"><span className="text-2xl">{card.icon}</span><h3 className="mt-4 font-bold">{card.title}</h3><p className="mt-2 text-sm leading-6 text-zinc-400">{card.text}</p><span className="mt-4 inline-block text-sm font-bold text-fuchsia-300">Open workspace →</span></Link>)}</div></section>
       <section id="features" className="mx-auto max-w-7xl px-5 pb-24 md:px-8">
         <div className="mb-8 max-w-xl"><p className="text-sm font-bold uppercase tracking-[.2em] text-fuchsia-300">Made for creators</p><h2 className="mt-3 text-3xl font-black sm:text-4xl">Everything starts with <span className="gradient-text">one idea.</span></h2></div>
         <div className="grid gap-4 md:grid-cols-3">
