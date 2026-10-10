@@ -45,7 +45,7 @@ const viralTemplates: ViralTemplate[] = ([[ "Beat Drop Reveal","Trending","Bold 
   scene: { id: `viral-${index}`, name: title, background: `linear-gradient(135deg, ${color1}, ${color2})`, duration: 3, photoSide: index % 2 ? "left" : "right",
     layers: (layerRows as ViralLayerRow[]).map((row: ViralLayerRow, layerIndex: number) => makeLayer(`viral-${index}-${layerIndex}`, row[0], row[1], row[2], row[3], 50, row[4], row[5]))
   }
-}));
+});
 
 const ratioDimensions: Record<AspectRatio, { width: number; height: number }> = {
   "9:16": { width: 1080, height: 1920 },
