@@ -84,6 +84,11 @@ export default function EditorPage() {
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [musicUrl, setMusicUrl] = useState("");
   const [musicName, setMusicName] = useState("");
+  const [musicVolume, setMusicVolume] = useState(0.8);
+  const [audioTrimStart, setAudioTrimStart] = useState(0);
+  const [audioTrimEnd, setAudioTrimEnd] = useState(0);
+  const [audioFadeIn, setAudioFadeIn] = useState(1);
+  const [audioFadeOut, setAudioFadeOut] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [playhead, setPlayhead] = useState(0);
@@ -391,7 +396,7 @@ export default function EditorPage() {
     animationRef.current = null;
     videoCache.current.forEach(video => video.pause()); activeVideoSceneRef.current = null;
     const audio = previewAudioRef.current;
-    if (audio) { audio.pause(); audio.currentTime = 0; }
+    if (audio) { audio.pause(); audio.currentTime = audioTrimStart; }
     setIsPlaying(false);
   };
   const playPreview = () => {
@@ -399,7 +404,7 @@ export default function EditorPage() {
     const canvas = canvasRef.current; const ctx = canvas?.getContext("2d"); if (!canvas || !ctx) return;
     setIsPlaying(true);
     const audio = previewAudioRef.current;
-    if (audio && musicUrl) { audio.currentTime = 0; void audio.play().catch(() => setStatus("Browser ne music playback roka. Audio panel se Play dabakar allow karein.")); }
+    if (audio && musicUrl) { audio.volume = musicVolume; audio.currentTime = audioTrimStart; void audio.play().catch(() => setStatus("Browser ne music playback roka. Audio panel se Play dabakar allow karein.")); }
     const started = performance.now();
     const frame = (now: number) => {
       const elapsed = (now - started) / 1000;
@@ -422,15 +427,18 @@ export default function EditorPage() {
     let stream: MediaStream | undefined;
     let audioContext: AudioContext | undefined;
     let audioSource: MediaElementAudioSourceNode | undefined;
+    let audioGain: GainNode | undefined;
     let musicElement: HTMLAudioElement | undefined;
     let recorder: MediaRecorder | undefined;
     try {
       stream = canvas.captureStream(30);
       if (musicUrl) {
-        audioContext = new AudioContext(); musicElement = new Audio(musicUrl); musicElement.loop = true;
-        audioSource = audioContext.createMediaElementSource(musicElement);
+        audioContext = new AudioContext(); musicElement = new Audio(musicUrl); musicElement.loop = false; musicElement.currentTime = audioTrimStart;
+        audioSource = audioContext.createMediaElementSource(musicElement); audioGain = audioContext.createGain(); audioGain.gain.value = 0;
+        audioSource.connect(audioGain);
         const destination = audioContext.createMediaStreamDestination();
-        audioSource.connect(destination); audioSource.connect(audioContext.destination);
+        audioGain.connect(destination); audioGain.connect(audioContext.destination);
+        musicElement.ontimeupdate = () => { if (audioTrimEnd > audioTrimStart && musicElement && musicElement.currentTime >= audioTrimEnd) musicElement.currentTime = audioTrimStart; };
         destination.stream.getAudioTracks().forEach((track) => stream.addTrack(track));
         await audioContext.resume();
       }
@@ -445,6 +453,7 @@ export default function EditorPage() {
       await new Promise<void>((resolve) => {
         const frame = (now: number) => {
           const elapsed = (now - started) / 1000;
+          if (audioGain) { const fadeUp = audioFadeIn > 0 ? Math.min(1, elapsed / audioFadeIn) : 1; const remaining = totalDuration - elapsed; const fadeDown = audioFadeOut > 0 ? Math.min(1, remaining / audioFadeOut) : 1; audioGain.gain.value = musicVolume * Math.max(0, Math.min(fadeUp, fadeDown)); }
           setProgress(Math.min(60, Math.round(elapsed / totalDuration * 60))); setPlayhead(Math.min(elapsed, totalDuration));
           if (elapsed >= totalDuration) { resolve(); return; }
           let remaining = elapsed; let scene = scenes[0];
@@ -524,7 +533,7 @@ export default function EditorPage() {
             </div>}{panel === "Text" && <div className="space-y-3"><button onClick={addText} className="editor-secondary w-full">＋ Add text layer</button>{activeScene.layers.map((layer) => <button key={layer.id} onClick={() => setActiveLayerId(layer.id)} className={`layer-list-item ${activeLayerId === layer.id ? "selected" : ""}`}><span className="font-bold">T</span><span className="truncate text-left">{layer.text.replaceAll("\n", " ") || "Text layer"}</span></button>)}</div>}
             {panel === "Characters" && <div className="space-y-4"><div className="rounded-xl border border-fuchsia-400/20 bg-fuchsia-400/5 p-3"><b className="text-sm">Animated characters</b><p className="mt-1 text-xs leading-5 text-zinc-400">Choose a character to add it to the active scene. Select it, choose an animation, then press Play.</p></div>{characterPacks.map((pack) => <section key={pack.title}><h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-zinc-400">{pack.title}</h3><div className="grid grid-cols-4 gap-2">{pack.items.map((character) => <button key={character} title={`Add ${character}`} onClick={() => addCharacter(character)} className="flex aspect-square items-center justify-center rounded-xl border border-white/10 bg-white/[.04] text-2xl transition hover:border-fuchsia-400/60 hover:bg-fuchsia-400/10">{character}</button>)}</div></section>)}</div>}
             {panel === "Media" && <div className="space-y-4"><p className="text-xs leading-5 text-zinc-400">Add a video clip or photo to this scene. Local media remains in this browser session.</p><label className="upload-box"><span className="text-2xl">▶</span><b>Import video clip</b><small>MP4, MOV, WEBM · max 500 MB</small><input type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" onChange={handleVideo} className="sr-only" /></label>{activeScene.videoName && <div className="rounded-xl border border-fuchsia-300/20 p-3 text-xs"><b className="block break-all">{activeScene.videoName}</b><div className="mt-3"><label className="label">Trim start · {(activeScene.trimStart ?? 0).toFixed(1)}s</label><input className="editor-range" type="range" min="0" max={Math.max(0.5, activeScene.trimEnd ?? activeScene.duration)} step="0.1" value={activeScene.trimStart ?? 0} onChange={e=>patchScene({trimStart:Math.min(Number(e.target.value),Math.max(0,(activeScene.trimEnd??activeScene.duration)-0.1))})}/></div><div className="mt-3"><label className="label">Trim end · {(activeScene.trimEnd ?? activeScene.duration).toFixed(1)}s</label><input className="editor-range" type="range" min={Math.max(0.1,activeScene.trimStart??0)+0.1} max={Math.max(0.5,videoCache.current.get(activeScene.videoUrl??"")?.duration??activeScene.duration)} step="0.1" value={activeScene.trimEnd ?? activeScene.duration} onChange={e=>patchScene({trimEnd:Math.max((activeScene.trimStart??0)+0.1,Number(e.target.value))})}/></div><button onClick={()=>{patchScene({videoUrl:undefined,videoName:undefined,trimStart:undefined,trimEnd:undefined});setStatus("Video removed.");}} className="mt-3 text-rose-300">Remove video</button></div>}<label className="upload-box"><span className="text-2xl">＋</span><b>Upload photo</b><small>PNG, JPG, WEBP</small><input type="file" accept="image/*" onChange={handlePhoto} className="sr-only" /></label>{activeScene.photoName && <div className="rounded-xl bg-white/5 p-3 text-xs text-zinc-300">{activeScene.photoName}<button onClick={() => patchScene({ photoUrl: undefined, photoName: undefined })} className="float-right text-rose-300">Remove</button></div>}<label className="label mt-4">Photo placement</label><select className="editor-select w-full" value={activeScene.photoSide ?? "right"} onChange={(e) => patchScene({ photoSide: e.target.value as Scene["photoSide"] })}><option value="left">Left side</option><option value="right">Right side</option></select></div>}
-            {panel === "Audio" && <div className="space-y-4"><div className="rounded-xl border border-white/10 bg-white/[.03] p-3"><div className="mb-2 flex items-center gap-2"><span className="text-xl text-fuchsia-300">♫</span><div><b className="block text-sm">Music track</b><small className="text-xs text-zinc-500">Local audio file</small></div></div><label className="upload-box"><span className="text-2xl">＋</span><b>Upload audio</b><small>MP3, WAV, M4A (browser support varies)</small><input type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" onChange={handleMusic} className="sr-only" /></label>{musicName && <><p className="mt-3 break-all text-xs text-zinc-300">{musicName}</p><audio key={musicUrl} src={musicUrl} controls preload="metadata" className="mt-3 w-full" /></>}<button onClick={generateCaptions} disabled={aiBusy} className="editor-secondary mt-4 w-full disabled:opacity-50">{aiBusy?"Processing…":"Generate word-timed captions"}</button><label className="label mt-4">AI voiceover text</label><textarea className="editor-input min-h-20" value={voiceoverText} onChange={e=>setVoiceoverText(e.target.value)} maxLength={4000} placeholder="Type the narration to speak…"/><button onClick={generateVoiceover} disabled={aiBusy||!voiceoverText.trim()} className="editor-secondary w-full disabled:opacity-50">Generate AI voiceover</button></div><p className="text-xs leading-5 text-zinc-500">AI services require configured provider keys and may incur usage charges. Use only media you own or are licensed to use.</p></div>}
+            {panel === "Audio" && <div className="space-y-4"><div className="rounded-xl border border-white/10 bg-white/[.03] p-3"><div className="mb-2 flex items-center gap-2"><span className="text-xl text-fuchsia-300">♫</span><div><b className="block text-sm">Music track</b><small className="text-xs text-zinc-500">Local audio file</small></div></div><label className="upload-box"><span className="text-2xl">＋</span><b>Upload audio</b><small>MP3, WAV, M4A (browser support varies)</small><input type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" onChange={handleMusic} className="sr-only" /></label>{musicName && <><p className="mt-3 break-all text-xs text-zinc-300">{musicName}</p><audio key={musicUrl} ref={previewAudioRef} src={musicUrl} controls preload="metadata" className="mt-3 w-full" onLoadedMetadata={e=>{if(!audioTrimEnd) setAudioTrimEnd(e.currentTarget.duration||0);e.currentTarget.volume=musicVolume;}} onTimeUpdate={e=>{const a=e.currentTarget;if(audioTrimEnd>audioTrimStart&&a.currentTime>=audioTrimEnd)a.currentTime=audioTrimStart;const up=audioFadeIn>0?Math.min(1,Math.max(0,(a.currentTime-audioTrimStart)/audioFadeIn)):1;const down=audioFadeOut>0&&audioTrimEnd>audioTrimStart?Math.min(1,Math.max(0,(audioTrimEnd-a.currentTime)/audioFadeOut)):1;a.volume=musicVolume*Math.min(up,down);}} /></>}<div className="mt-4 space-y-3"><label className="label">Volume · {Math.round(musicVolume*100)}%</label><input className="editor-range" type="range" min="0" max="1" step="0.05" value={musicVolume} onChange={e=>setMusicVolume(Number(e.target.value))}/><label className="label">Audio trim start · {audioTrimStart.toFixed(1)}s</label><input className="editor-range" type="range" min="0" max={Math.max(1,audioTrimEnd||60)} step="0.1" value={audioTrimStart} onChange={e=>setAudioTrimStart(Math.min(Number(e.target.value),Math.max(0,audioTrimEnd-0.1)))}/><label className="label">Audio trim end · {audioTrimEnd.toFixed(1)}s</label><input className="editor-range" type="range" min={Math.max(0.1,audioTrimStart+0.1)} max={Math.max(1,previewAudioRef.current?.duration||audioTrimEnd||60)} step="0.1" value={audioTrimEnd||1} onChange={e=>setAudioTrimEnd(Number(e.target.value))}/><div className="grid grid-cols-2 gap-3"><label className="label">Fade in · {audioFadeIn}s<input className="editor-range mt-2" type="range" min="0" max="5" step="0.5" value={audioFadeIn} onChange={e=>setAudioFadeIn(Number(e.target.value))}/></label><label className="label">Fade out · {audioFadeOut}s<input className="editor-range mt-2" type="range" min="0" max="5" step="0.5" value={audioFadeOut} onChange={e=>setAudioFadeOut(Number(e.target.value))}/></label></div></div><button onClick={generateCaptions} disabled={aiBusy} className="editor-secondary mt-4 w-full disabled:opacity-50">{aiBusy?"Processing…":"Generate word-timed captions"}</button><label className="label mt-4">AI voiceover text</label><textarea className="editor-input min-h-20" value={voiceoverText} onChange={e=>setVoiceoverText(e.target.value)} maxLength={4000} placeholder="Type the narration to speak…"/><button onClick={generateVoiceover} disabled={aiBusy||!voiceoverText.trim()} className="editor-secondary w-full disabled:opacity-50">Generate AI voiceover</button></div><p className="text-xs leading-5 text-zinc-500">AI services require configured provider keys and may incur usage charges. Use only media you own or are licensed to use.</p></div>}
             {panel === "Scenes" && <div className="space-y-3">
               <div className="flex items-center justify-between"><span className="text-xs text-zinc-500">{scenes.length} frames</span><button onClick={addScene} className="editor-secondary">＋ Add scene</button></div>
               {scenes.map((scene, index) => <motion.div layout key={scene.id} className={`scene-card ${scene.id === activeSceneId ? "selected" : ""}`}>
