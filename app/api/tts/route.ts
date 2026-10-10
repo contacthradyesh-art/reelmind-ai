@@ -21,7 +21,17 @@ export async function POST(request: Request) {
     const data = await response.json();
     const part = data.candidates?.[0]?.content?.parts?.find((item: { inlineData?: { data?: string; mimeType?: string } }) => item.inlineData?.data);
     if (!part?.inlineData?.data) return NextResponse.json({ error: "Provider returned no audio." }, { status: 502 });
-    return NextResponse.json({ audioBase64: part.inlineData.data, mimeType: part.inlineData.mimeType ?? "audio/pcm;rate=24000", voice });
+    const raw = Buffer.from(part.inlineData.data, "base64");
+    const sampleRateMatch = String(part.inlineData.mimeType ?? "").match(/rate=(\\d+)/);
+    const sampleRate = sampleRateMatch ? Number(sampleRateMatch[1]) : 24000;
+    const wav = Buffer.alloc(44 + raw.length);
+    wav.write("RIFF", 0); wav.writeUInt32LE(36 + raw.length, 4); wav.write("WAVE", 8);
+    wav.write("fmt ", 12); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20);
+    wav.writeUInt16LE(1, 22); wav.writeUInt32LE(sampleRate, 24);
+    wav.writeUInt32LE(sampleRate * 2, 28); wav.writeUInt16LE(2, 32);
+    wav.writeUInt16LE(16, 34); wav.write("data", 36); wav.writeUInt32LE(raw.length, 40);
+    raw.copy(wav, 44);
+    return NextResponse.json({ audioBase64: wav.toString("base64"), mimeType: "audio/wav", voice });
   } catch {
     return NextResponse.json({ error: "TTS request timed out or failed." }, { status: 502 });
   }
