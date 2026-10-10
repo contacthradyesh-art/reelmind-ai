@@ -243,9 +243,13 @@ export default function EditorPage() {
     if (!canvas || isExporting || isPlaying) return;
     if (!("MediaRecorder" in window) || !canvas.captureStream) { setStatus("Is browser mein canvas recording support nahi hai. Latest Chrome/Edge try karein."); return; }
     setIsExporting(true); setProgress(0); setDownloadUrl(""); setStatus("Browser mein video record ho raha hai…");
+    let stream: MediaStream | undefined;
+    let audioContext: AudioContext | undefined;
+    let audioSource: MediaElementAudioSourceNode | undefined;
+    let musicElement: HTMLAudioElement | undefined;
+    let recorder: MediaRecorder | undefined;
     try {
-      const stream = canvas.captureStream(30);
-      let audioContext: AudioContext | undefined; let audioSource: MediaElementAudioSourceNode | undefined; let musicElement: HTMLAudioElement | undefined;
+      stream = canvas.captureStream(30);
       if (musicUrl) {
         audioContext = new AudioContext(); musicElement = new Audio(musicUrl); musicElement.loop = true;
         audioSource = audioContext.createMediaElementSource(musicElement);
@@ -255,7 +259,7 @@ export default function EditorPage() {
         await audioContext.resume();
       }
       const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") ? "video/webm;codecs=vp9,opus" : "video/webm";
-      const recorder = new MediaRecorder(stream, { mimeType }); recorderRef.current = recorder; chunksRef.current = [];
+      recorder = new MediaRecorder(stream, { mimeType }); recorderRef.current = recorder; chunksRef.current = [];
       recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
       const recorded = new Promise<Blob>((resolve, reject) => { recorder.onerror = () => reject(new Error("Browser recording failed.")); recorder.onstop = () => resolve(new Blob(chunksRef.current, { type: "video/webm" })); });
       await musicElement?.play().catch(() => setStatus("Music autoplay block hua; export bina music ke ho sakta hai."));
@@ -275,7 +279,8 @@ export default function EditorPage() {
         requestAnimationFrame(frame);
       });
       recorder.stop(); const webmBlob = await recorded;
-      stream.getTracks().forEach((track) => track.stop()); musicElement?.pause(); audioSource?.disconnect(); await audioContext?.close();
+      stream.getTracks().forEach((track) => track.stop()); stream = undefined;
+      musicElement?.pause(); audioSource?.disconnect(); await audioContext?.close(); audioContext = undefined;
       setStatus("WebM ko MP4 mein convert kar rahe hain…");
       let ffmpeg = ffmpegRef.current;
       if (!ffmpeg) {
@@ -292,8 +297,17 @@ export default function EditorPage() {
       setProgress(100); setStatus("MP4 ready hai — download kar sakte ho.");
       await ffmpeg.deleteFile("input.webm").catch(() => undefined); await ffmpeg.deleteFile("output.mp4").catch(() => undefined);
     } catch (error) {
-      console.error(error); setStatus(`Export error: ${error instanceof Error ? error.message : "Unknown error"}`);
-    } finally { setIsExporting(false); }
+      console.error(error);
+      setStatus(`Export error: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      if (recorder && recorder.state !== "inactive") recorder.stop();
+      stream?.getTracks().forEach((track) => track.stop());
+      musicElement?.pause();
+      audioSource?.disconnect();
+      if (audioContext && audioContext.state !== "closed") await audioContext.close().catch(() => undefined);
+      recorderRef.current = null;
+      setIsExporting(false);
+    }
   };
 
   const canvasStyle: CSSProperties = { aspectRatio: aspect.replace(":", " / ") };
