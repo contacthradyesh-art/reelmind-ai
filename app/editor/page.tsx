@@ -97,6 +97,7 @@ export default function EditorPage() {
   const [status, setStatus] = useState("All changes are saved in this session");
   const [projectName, setProjectName] = useState("Untitled Reel");
   const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudProjectId, setCloudProjectId] = useState<string | undefined>(undefined);
   const [voiceoverText, setVoiceoverText] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -109,11 +110,11 @@ export default function EditorPage() {
     try {
       const raw = sessionStorage.getItem("reelmind:pending-project");
       if (!raw) return;
-      const saved = JSON.parse(raw) as { title?: string; data?: { scenes?: Scene[]; aspect?: AspectRatio } };
+      const saved = JSON.parse(raw) as { id?: string; title?: string; data?: { scenes?: Scene[]; aspect?: AspectRatio } };
       if (Array.isArray(saved.data?.scenes) && saved.data.scenes.length) {
         setScenes(saved.data.scenes); setActiveSceneId(saved.data.scenes[0].id); setActiveLayerId(saved.data.scenes[0].layers?.[0]?.id ?? "");
         if (saved.data.aspect && saved.data.aspect in ratioDimensions) setAspect(saved.data.aspect);
-        setProjectName(saved.title ?? "Untitled Reel"); setStatus("Cloud project loaded. Local media URLs may need re-uploading.");
+        setProjectName(saved.title ?? "Untitled Reel"); setCloudProjectId(saved.id); setStatus("Cloud project loaded. Local media URLs may need re-uploading.");
       }
       sessionStorage.removeItem("reelmind:pending-project");
       window.history.replaceState({}, "", "/editor");
@@ -125,7 +126,8 @@ export default function EditorPage() {
     try {
       if (!auth) throw new Error("Firebase not configured. Set NEXT_PUBLIC_FIREBASE_* variables in .env.local.");
       if (!auth.currentUser) await signInWithPopup(auth, googleProvider);
-      await saveCloudProject(projectName, { scenes, aspect, formatVersion: 1 });
+      const savedId = await saveCloudProject(projectName, { scenes, aspect, formatVersion: 1 }, cloudProjectId);
+      setCloudProjectId(savedId);
       setStatus("Project saved to your cloud workspace.");
     } catch (error) { setStatus(error instanceof Error ? error.message : "Cloud save failed."); }
     finally { setCloudBusy(false); }
