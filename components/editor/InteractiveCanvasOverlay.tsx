@@ -137,7 +137,7 @@ export default function InteractiveCanvasOverlay({
     x: layer.x, y: layer.y, scale: layer.scale ?? 1, rotation: layer.rotation ?? 0,
   });
   const photoValues: PhotoTransform = photoTransform ?? {
-    x: photoSide === "left" ? 25 : 75, y: 50, scale: 1, rotation: 0,
+    x: photoSide === "left" ? 30 : 70, y: 50, scale: 1, rotation: 0,
   };
 
   return (
