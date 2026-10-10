@@ -350,7 +350,7 @@ export default function EditorPage() {
           <div className="stage-footnote"><span>◉ Browser preview</span><span>Drag scenes below to reorder</span></div>
         </section>
 
-        <aside className="editor-properties">
+        <aside className={`editor-properties ${mobilePanelOpen && panel === "Properties" ? "mobile-properties-open" : ""}`}>
           <div className="mb-5"><p className="text-[10px] font-bold uppercase tracking-[.2em] text-fuchsia-300">Inspector</p><h2 className="mt-1 text-base font-bold">Properties</h2></div>
           <div className="space-y-5">
             <div><label className="label">Selected layer</label><select className="editor-select w-full" value={activeLayer.id} onChange={(e) => setActiveLayerId(e.target.value)}>{activeScene.layers.map((layer) => <option key={layer.id} value={layer.id}>{layer.text || "Text layer"}</option>)}</select></div>
@@ -379,7 +379,7 @@ export default function EditorPage() {
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px] text-zinc-600"><span>{status}</span>{isExporting && <span>{progress}%</span>}{downloadUrl && <a href={downloadUrl} download="reelmind-reel.mp4" className="rounded-lg bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-200">↓ Download MP4</a>}</div>
         {isExporting && <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/10"><div className="h-full bg-gradient-to-r from-violet-500 to-pink-500 transition-all" style={{ width: `${progress}%` }} /></div>}
       </section>
-      <nav className="mobile-bottom-nav">{Object.keys(iconByPanel).map((name) => <button key={name} onClick={() => openPanel(name)} className={panel === name ? "active" : ""}><span>{iconByPanel[name]}</span><small>{name}</small></button>)}</nav>
+      <nav className="mobile-bottom-nav">{[...Object.keys(iconByPanel), "Properties"].map((name) => <button key={name} onClick={() => openPanel(name)} className={panel === name ? "active" : ""}><span>{name === "Properties" ? "⚙" : iconByPanel[name]}</span><small>{name}</small></button>)}</nav>
       <AnimatePresence>{mobilePanelOpen && <motion.button aria-label="Close tools panel" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMobilePanelOpen(false)} className="mobile-scrim" />}</AnimatePresence>
     </main>
   );
