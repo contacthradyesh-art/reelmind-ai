@@ -91,6 +91,8 @@ export default function EditorPage() {
   const [audioFadeOut, setAudioFadeOut] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportQuality, setExportQuality] = useState<"720p" | "1080p">("1080p");
+  const [exportFps, setExportFps] = useState<30 | 60>(30);
   const [playhead, setPlayhead] = useState(0);
   const [status, setStatus] = useState("All changes are saved in this session");
   const [projectName, setProjectName] = useState("Untitled Reel");
@@ -443,13 +445,18 @@ export default function EditorPage() {
     if (!("MediaRecorder" in window) || !canvas.captureStream) { setStatus("Is browser mein canvas recording support nahi hai. Latest Chrome/Edge try karein."); return; }
     setIsExporting(true); setProgress(0); setDownloadUrl(""); setStatus("Browser mein video record ho raha hai…");
     let stream: MediaStream | undefined;
+    let renderCanvas: HTMLCanvasElement | undefined;
     let audioContext: AudioContext | undefined;
     let audioSource: MediaElementAudioSourceNode | undefined;
     let audioGain: GainNode | undefined;
     let musicElement: HTMLAudioElement | undefined;
     let recorder: MediaRecorder | undefined;
     try {
-      stream = canvas.captureStream(30);
+      renderCanvas = document.createElement("canvas");
+      const base = exportQuality === "720p" ? 720 : 1080;
+      renderCanvas.width = aspect === "16:9" ? Math.round(base * 16 / 9) : base;
+      renderCanvas.height = aspect === "9:16" ? Math.round(base * 16 / 9) : aspect === "16:9" ? base : base;
+      stream = renderCanvas.captureStream(exportFps);
       if (musicUrl) {
         audioContext = new AudioContext(); musicElement = new Audio(musicUrl); musicElement.loop = false; musicElement.currentTime = audioTrimStart;
         audioSource = audioContext.createMediaElementSource(musicElement); audioGain = audioContext.createGain(); audioGain.gain.value = 0;
@@ -466,7 +473,7 @@ export default function EditorPage() {
       const recorded = new Promise<Blob>((resolve, reject) => { recorder.onerror = () => reject(new Error("Browser recording failed.")); recorder.onstop = () => resolve(new Blob(chunksRef.current, { type: "video/webm" })); });
       await musicElement?.play().catch(() => setStatus("Music autoplay block hua; export bina music ke ho sakta hai."));
       recorder.start(250);
-      const ctx = canvas.getContext("2d"); if (!ctx) throw new Error("Canvas context unavailable.");
+      const ctx = renderCanvas?.getContext("2d"); if (!ctx) throw new Error("Export canvas context unavailable.");
       const started = performance.now();
       await new Promise<void>((resolve) => {
         const frame = (now: number) => {
@@ -529,7 +536,7 @@ export default function EditorPage() {
           <select id="aspectRatio" value={aspect} onChange={(e) => { remember(); setAspect(e.target.value as AspectRatio); }} className="editor-select hidden sm:block"><option>9:16</option><option>1:1</option><option>16:9</option></select>
           <button title="Undo" onClick={undo} disabled={!history.length} className="editor-tool-btn">↶</button>
           <button title="Redo" onClick={redo} disabled={!future.length} className="editor-tool-btn">↷</button>
-          <Link href="/projects" className="hidden rounded-lg border border-white/10 px-3 py-2 text-xs sm:inline-flex">Projects</Link><button onClick={saveToCloud} disabled={cloudBusy} className="rounded-lg border border-fuchsia-300/20 px-3 py-2 text-xs text-fuchsia-100 disabled:opacity-50">{cloudBusy ? "Saving…" : "Save cloud"}</button><button onClick={generateVideo} disabled={isExporting || isPlaying} className="editor-export">{isExporting ? "Exporting…" : "↥ Export"}</button>
+          <Link href="/projects" className="hidden rounded-lg border border-white/10 px-3 py-2 text-xs sm:inline-flex">Projects</Link><button onClick={saveToCloud} disabled={cloudBusy} className="rounded-lg border border-fuchsia-300/20 px-3 py-2 text-xs text-fuchsia-100 disabled:opacity-50">{cloudBusy ? "Saving…" : "Save cloud"}</button><select aria-label="Export resolution" value={exportQuality} onChange={e=>setExportQuality(e.target.value as "720p"|"1080p")} className="editor-select hidden lg:block"><option value="720p">720p</option><option value="1080p">1080p</option></select><select aria-label="Export frame rate" value={exportFps} onChange={e=>setExportFps(Number(e.target.value) as 30|60)} className="editor-select hidden lg:block"><option value={30}>30 FPS</option><option value={60}>60 FPS</option></select><button onClick={generateVideo} disabled={isExporting || isPlaying} className="editor-export">{isExporting ? "Exporting…" : "↥ Export"}</button>
         </div>
       </header>
 
