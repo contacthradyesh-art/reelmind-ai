@@ -343,7 +343,7 @@ export default function EditorPage() {
     remember();
     setScenes(items => items.map(scene => scene.id === activeSceneId ? { ...scene, videoUrl: url, videoName: file.name, trimStart: 0, trimEnd: undefined } : scene));
     const video = document.createElement("video"); video.src = url; video.preload = "metadata"; video.onloadedmetadata = () => setScenes(items => items.map(scene => scene.id === activeSceneId ? { ...scene, duration: Math.max(0.5, Math.min(30, video.duration || 3)), trimEnd: video.duration } : scene)); videoCache.current.set(url, video);
-    setStatus(`Video imported: ${file.name}. Set trim points in Media.");
+    setStatus(`Video imported: ${file.name}. Set trim points in Media.`);
   };
 
   const handlePhoto = (event: ChangeEvent<HTMLInputElement>) => {
