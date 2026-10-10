@@ -6,6 +6,8 @@ import { ChangeEvent, CSSProperties, DragEvent, useCallback, useEffect, useMemo,
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import InteractiveCanvasOverlay from "@/components/editor/InteractiveCanvasOverlay";
+import { auth, googleProvider, saveCloudProject } from "@/lib/firebase/client";
+import { signInWithPopup } from "firebase/auth";
 
 type AnimationName = "fade" | "slide" | "pop" | "bounce" | "float" | "spin" | "shake" | "pulse";
 type AspectRatio = "9:16" | "1:1" | "16:9";
@@ -82,10 +84,39 @@ export default function EditorPage() {
   const [isExporting, setIsExporting] = useState(false);
   const [playhead, setPlayhead] = useState(0);
   const [status, setStatus] = useState("All changes are saved in this session");
+  const [projectName, setProjectName] = useState("Untitled Reel");
+  const [cloudBusy, setCloudBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [downloadUrl, setDownloadUrl] = useState("");
   const [history, setHistory] = useState<ProjectState[]>([]);
   const [future, setFuture] = useState<ProjectState[]>([]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || new URLSearchParams(window.location.search).get("load") !== "cloud") return;
+    try {
+      const raw = sessionStorage.getItem("reelmind:pending-project");
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { title?: string; data?: { scenes?: Scene[]; aspect?: AspectRatio } };
+      if (Array.isArray(saved.data?.scenes) && saved.data.scenes.length) {
+        setScenes(saved.data.scenes); setActiveSceneId(saved.data.scenes[0].id); setActiveLayerId(saved.data.scenes[0].layers?.[0]?.id ?? "");
+        if (saved.data.aspect && saved.data.aspect in ratioDimensions) setAspect(saved.data.aspect);
+        setProjectName(saved.title ?? "Untitled Reel"); setStatus("Cloud project loaded. Local media URLs may need re-uploading.");
+      }
+      sessionStorage.removeItem("reelmind:pending-project");
+      window.history.replaceState({}, "", "/editor");
+    } catch { setStatus("Could not restore cloud project data."); }
+  }, []);
+
+  const saveToCloud = async () => {
+    setCloudBusy(true);
+    try {
+      if (!auth) throw new Error("Firebase not configured. Set NEXT_PUBLIC_FIREBASE_* variables in .env.local.");
+      if (!auth.currentUser) await signInWithPopup(auth, googleProvider);
+      await saveCloudProject(projectName, { scenes, aspect, formatVersion: 1 });
+      setStatus("Project saved to your cloud workspace.");
+    } catch (error) { setStatus(error instanceof Error ? error.message : "Cloud save failed."); }
+    finally { setCloudBusy(false); }
+  };
 
   const activeScene = scenes.find((scene) => scene.id === activeSceneId) ?? scenes[0];
   const activeLayer = activeScene.layers.find((layer) => layer.id === activeLayerId) ?? activeScene.layers[0];
@@ -384,14 +415,14 @@ export default function EditorPage() {
       <header className="editor-topbar">
         <div className="flex min-w-0 items-center gap-3">
           <Link href="/" aria-label="Back to home" className="editor-logo">R</Link>
-          <div className="min-w-0"><div className="truncate text-sm font-extrabold tracking-tight">ReelMind <span className="text-fuchsia-300">AI</span></div><div className="hidden text-[10px] text-zinc-500 sm:block">Untitled project · Draft</div></div>
+          <div className="min-w-0"><div className="truncate text-sm font-extrabold tracking-tight">ReelMind <span className="text-fuchsia-300">AI</span></div><input aria-label="Project name" value={projectName} onChange={(e) => setProjectName(e.target.value.slice(0,120))} className="mt-1 w-36 bg-transparent text-[10px] text-zinc-400 outline-none sm:w-48" /></div>
         </div>
         <div className="flex items-center gap-2">
           <label className="sr-only" htmlFor="aspectRatio">Canvas ratio</label>
           <select id="aspectRatio" value={aspect} onChange={(e) => { remember(); setAspect(e.target.value as AspectRatio); }} className="editor-select hidden sm:block"><option>9:16</option><option>1:1</option><option>16:9</option></select>
           <button title="Undo" onClick={undo} disabled={!history.length} className="editor-tool-btn">↶</button>
           <button title="Redo" onClick={redo} disabled={!future.length} className="editor-tool-btn">↷</button>
-          <button onClick={generateVideo} disabled={isExporting || isPlaying} className="editor-export">{isExporting ? "Exporting…" : "↥ Export"}</button>
+          <Link href="/projects" className="hidden rounded-lg border border-white/10 px-3 py-2 text-xs sm:inline-flex">Projects</Link><button onClick={saveToCloud} disabled={cloudBusy} className="rounded-lg border border-fuchsia-300/20 px-3 py-2 text-xs text-fuchsia-100 disabled:opacity-50">{cloudBusy ? "Saving…" : "Save cloud"}</button><button onClick={generateVideo} disabled={isExporting || isPlaying} className="editor-export">{isExporting ? "Exporting…" : "↥ Export"}</button>
         </div>
       </header>
 
