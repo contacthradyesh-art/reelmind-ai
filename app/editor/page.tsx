@@ -6,7 +6,7 @@ import { ChangeEvent, CSSProperties, DragEvent, useCallback, useEffect, useMemo,
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 
-type AnimationName = "fade" | "slide" | "pop";
+type AnimationName = "fade" | "slide" | "pop" | "bounce" | "float" | "spin" | "shake" | "pulse";
 type AspectRatio = "9:16" | "1:1" | "16:9";
 type TextLayer = { id: string; text: string; color: string; fontFamily: string; fontSize: number; x: number; y: number; animation: AnimationName };
 type Scene = { id: string; name: string; background: string; duration: number; layers: TextLayer[]; photoUrl?: string; photoName?: string; photoSide?: "left" | "right" };
@@ -24,7 +24,13 @@ const ratioDimensions: Record<AspectRatio, { width: number; height: number }> = 
   "1:1": { width: 1080, height: 1080 },
   "16:9": { width: 1920, height: 1080 }
 };
-const iconByPanel: Record<string, string> = { Templates: "▦", Text: "T", Media: "▧", Audio: "♫", Scenes: "▤" };
+const iconByPanel: Record<string, string> = { Templates: "▦", Text: "T", Characters: "✦", Media: "▧", Audio: "♫", Scenes: "▤" };
+const characterPacks = [
+  { title: "People", items: ["🧑‍🎤", "🧑‍🚀", "🧑‍🍳", "🧑‍🎓", "🧑‍💻", "🦸", "🧙", "🧛"] },
+  { title: "Cute & Animals", items: ["🐱", "🐶", "🐼", "🦊", "🐸", "🐵", "🐰", "🐻"] },
+  { title: "Fantasy & Fun", items: ["🤖", "👽", "👻", "👾", "🦄", "🐉", "🧚", "🧞"] },
+  { title: "Reactions", items: ["😂", "😍", "😎", "🥳", "😱", "😭", "🤔", "😈"] },
+];
 const fonts = ["Anton", "Poppins", "Bebas Neue", "Dancing Script", "Caveat", "Arial", "Georgia"];
 
 function easeOutCubic(value: number) { return 1 - Math.pow(1 - value, 3); }
@@ -155,10 +161,16 @@ export default function EditorPage() {
       let alpha = 1; let offsetY = 0; let scale = 1;
       if (layer.animation === "fade") alpha = easeOutCubic(enter);
       if (layer.animation === "slide") offsetY = (1 - easeOutCubic(enter)) * height * 0.12;
+      let offsetX = 0; let rotation = 0;
       if (layer.animation === "pop") scale = 0.45 + 0.55 * easeOutBack(enter);
+      if (layer.animation === "bounce") offsetY += -Math.abs(Math.sin(elapsed * 7)) * height * 0.035;
+      if (layer.animation === "float") offsetY += Math.sin(elapsed * 2.6) * height * 0.025;
+      if (layer.animation === "spin") rotation = elapsed * Math.PI * 2;
+      if (layer.animation === "shake") offsetX = Math.sin(elapsed * 24) * width * 0.012;
+      if (layer.animation === "pulse") scale *= 1 + Math.sin(elapsed * 5) * 0.1;
       ctx.save(); ctx.globalAlpha = alpha;
-      ctx.translate(width * layer.x / 100, height * layer.y / 100 + offsetY);
-      ctx.scale(scale, scale); ctx.fillStyle = layer.color; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.translate(width * layer.x / 100 + offsetX, height * layer.y / 100 + offsetY);
+      ctx.rotate(rotation); ctx.scale(scale, scale); ctx.fillStyle = layer.color; ctx.textAlign = "center"; ctx.textBaseline = "middle";
       const size = layer.fontSize * (width / 1080);
       ctx.font = `900 ${size}px "${layer.fontFamily}"`;
       ctx.shadowColor = "rgba(0,0,0,.24)"; ctx.shadowBlur = width / 70;
@@ -198,6 +210,14 @@ export default function EditorPage() {
     const id = `layer-${Date.now()}`; remember();
     setScenes((items) => items.map((scene) => scene.id === activeSceneId ? { ...scene, layers: [...scene.layers, makeLayer(id, "New text", "#ffffff", "Poppins", 58, 50, 60, "fade")] } : scene));
     setActiveLayerId(id); setPanel("Text");
+  };
+  const addCharacter = (character: string, animation: AnimationName = "bounce") => {
+    const id = `character-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    remember();
+    setScenes((items) => items.map((scene) => scene.id === activeSceneId ? { ...scene, layers: [...scene.layers, makeLayer(id, character, "#ffffff", "Arial", 116, 50, 55, animation)] } : scene));
+    setActiveLayerId(id);
+    setPanel("Characters");
+    setStatus(`${character} character added. Press Play to preview its animation.`);
   };
   const handlePhoto = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
@@ -359,6 +379,7 @@ export default function EditorPage() {
               <p className="text-xs leading-5 text-zinc-500">Templates use editable layouts only. Add your own photos and licensed audio.</p>
             </div>}
             {panel === "Text" && <div className="space-y-3"><button onClick={addText} className="editor-secondary w-full">＋ Add text layer</button>{activeScene.layers.map((layer) => <button key={layer.id} onClick={() => setActiveLayerId(layer.id)} className={`layer-list-item ${activeLayerId === layer.id ? "selected" : ""}`}><span className="font-bold">T</span><span className="truncate text-left">{layer.text.replaceAll("\n", " ") || "Text layer"}</span></button>)}</div>}
+            {panel === "Characters" && <div className="space-y-4"><div className="rounded-xl border border-fuchsia-400/20 bg-fuchsia-400/5 p-3"><b className="text-sm">Animated characters</b><p className="mt-1 text-xs leading-5 text-zinc-400">Choose a character to add it to the active scene. Select it, choose an animation, then press Play.</p></div>{characterPacks.map((pack) => <section key={pack.title}><h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-zinc-400">{pack.title}</h3><div className="grid grid-cols-4 gap-2">{pack.items.map((character) => <button key={character} title={`Add ${character}`} onClick={() => addCharacter(character)} className="flex aspect-square items-center justify-center rounded-xl border border-white/10 bg-white/[.04] text-2xl transition hover:border-fuchsia-400/60 hover:bg-fuchsia-400/10">{character}</button>)}</div></section>)}</div>}
             {panel === "Media" && <div className="space-y-4"><p className="text-xs leading-5 text-zinc-400">Selected scene mein apni image add karo. Template ke empty photo slot mein image fit hogi.</p><label className="upload-box"><span className="text-2xl">＋</span><b>Upload photo</b><small>PNG, JPG, WEBP</small><input type="file" accept="image/*" onChange={handlePhoto} className="sr-only" /></label>{activeScene.photoName && <div className="rounded-xl bg-white/5 p-3 text-xs text-zinc-300">{activeScene.photoName}<button onClick={() => patchScene({ photoUrl: undefined, photoName: undefined })} className="float-right text-rose-300">Remove</button></div>}<label className="label mt-4">Photo placement</label><select className="editor-select w-full" value={activeScene.photoSide ?? "right"} onChange={(e) => patchScene({ photoSide: e.target.value as Scene["photoSide"] })}><option value="left">Left side</option><option value="right">Right side</option></select></div>}
             {panel === "Audio" && <div className="space-y-4"><div className="rounded-xl border border-white/10 bg-white/[.03] p-3"><div className="mb-2 flex items-center gap-2"><span className="text-xl text-fuchsia-300">♫</span><div><b className="block text-sm">Music track</b><small className="text-xs text-zinc-500">Local audio file</small></div></div><label className="upload-box"><span className="text-2xl">＋</span><b>Upload audio</b><small>MP3, WAV, M4A (browser support varies)</small><input type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" onChange={handleMusic} className="sr-only" /></label>{musicName && <><p className="mt-3 break-all text-xs text-zinc-300">{musicName}</p><audio key={musicUrl} src={musicUrl} controls preload="metadata" className="mt-3 w-full" /></>}</div><p className="text-xs leading-5 text-zinc-500">Play dabakar music check karein. Timeline preview aur export mein music use hoga. Sirf apna ya licensed audio use karein.</p></div>}
             {panel === "Scenes" && <div className="space-y-3">
@@ -389,7 +410,7 @@ export default function EditorPage() {
             <div><label className="label" htmlFor="layerFont">Font family</label><select id="layerFont" className="editor-select w-full" value={activeLayer.fontFamily} onChange={(e) => patchLayer({ fontFamily: e.target.value })}>{fonts.map((font) => <option key={font}>{font}</option>)}</select></div>
             <div><div className="mb-2 flex justify-between"><label className="label mb-0" htmlFor="layerSize">Font size</label><span className="text-xs text-zinc-400">{activeLayer.fontSize}px</span></div><input id="layerSize" className="editor-range" type="range" min="24" max="140" value={activeLayer.fontSize} onChange={(e) => patchLayer({ fontSize: Number(e.target.value) })} /></div>
             <div><label className="label" htmlFor="layerColor">Text colour</label><div className="flex items-center gap-3"><input id="layerColor" type="color" value={activeLayer.color} onChange={(e) => patchLayer({ color: e.target.value })} className="h-9 w-11 rounded-lg border-0 bg-transparent" /><span className="text-xs text-zinc-400">{activeLayer.color}</span></div></div>
-            <div><label className="label" htmlFor="layerAnimation">Animation</label><select id="layerAnimation" className="editor-select w-full" value={activeLayer.animation} onChange={(e) => patchLayer({ animation: e.target.value as AnimationName })}><option value="fade">Fade in</option><option value="slide">Slide up</option><option value="pop">Pop</option></select></div>
+            <div><label className="label" htmlFor="layerAnimation">Animation</label><select id="layerAnimation" className="editor-select w-full" value={activeLayer.animation} onChange={(e) => patchLayer({ animation: e.target.value as AnimationName })}><option value="fade">Fade in</option><option value="slide">Slide up</option><option value="pop">Pop</option><option value="bounce">Bounce loop</option><option value="float">Float loop</option><option value="spin">Spin loop</option><option value="shake">Shake loop</option><option value="pulse">Pulse loop</option></select></div>
             <div><div className="mb-2 flex justify-between"><label className="label mb-0" htmlFor="layerX">Horizontal position</label><span className="text-xs text-zinc-400">{activeLayer.x}%</span></div><input id="layerX" className="editor-range" type="range" min="5" max="95" value={activeLayer.x} onChange={(e) => patchLayer({ x: Number(e.target.value) })} /></div>
             <div><div className="mb-2 flex justify-between"><label className="label mb-0" htmlFor="layerY">Vertical position</label><span className="text-xs text-zinc-400">{activeLayer.y}%</span></div><input id="layerY" className="editor-range" type="range" min="5" max="95" value={activeLayer.y} onChange={(e) => patchLayer({ y: Number(e.target.value) })} /></div>
             <button onClick={() => { remember(); setScenes((items) => items.map((scene) => scene.id === activeSceneId ? { ...scene, layers: scene.layers.filter((layer) => layer.id !== activeLayerId) } : scene)); const nextLayer = activeScene.layers.find((layer) => layer.id !== activeLayerId); setActiveLayerId(nextLayer?.id ?? ""); }} disabled={activeScene.layers.length <= 1} className="w-full rounded-xl border border-rose-300/20 px-3 py-2.5 text-xs font-semibold text-rose-200 hover:bg-rose-300/5 disabled:opacity-30">Delete selected text layer</button>
