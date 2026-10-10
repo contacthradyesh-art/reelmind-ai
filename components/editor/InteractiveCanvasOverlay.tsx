@@ -33,6 +33,8 @@ type Props = {
   onTransformLayer: (id: string, patch: Partial<EditableCanvasLayer>) => void;
   onTransformPhoto: (patch: PhotoTransform) => void;
   onSelectPhoto: () => void;
+  canvasWidth: number;
+  canvasHeight: number;
   disabled?: boolean;
 };
 
@@ -47,6 +49,8 @@ export default function InteractiveCanvasOverlay({
   onTransformLayer,
   onTransformPhoto,
   onSelectPhoto,
+  canvasWidth,
+  canvasHeight,
   disabled = false,
 }: Props) {
   const surfaceRef = useRef<HTMLDivElement>(null);
