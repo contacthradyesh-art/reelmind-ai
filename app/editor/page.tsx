@@ -167,7 +167,7 @@ export default function EditorPage() {
       const imageHeight = image.naturalHeight * scale;
       const imageX = scene.photoSide === "left" ? width * 0.04 : width * 0.96 - imageWidth;
       const photoScale = scene.photoScale ?? 1;
-      const photoCenterX = width * ((scene.photoX ?? (scene.photoSide === "left" ? 25 : 75)) / 100);
+      const photoCenterX = width * ((scene.photoX ?? (scene.photoSide === "left" ? 30 : 70)) / 100);
       const photoCenterY = height * ((scene.photoY ?? 50) / 100);
       ctx.save(); ctx.globalAlpha = 0.96;
       ctx.translate(photoCenterX, photoCenterY); ctx.rotate(((scene.photoRotation ?? 0) * Math.PI) / 180); ctx.scale(photoScale, photoScale);
