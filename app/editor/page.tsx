@@ -29,6 +29,7 @@ const fonts = ["Anton", "Poppins", "Bebas Neue", "Dancing Script", "Caveat", "Ar
 
 export default function EditorPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const previewAudioRef = useRef<HTMLAudioElement>(null);
   const photoCache = useRef<Map<string, HTMLImageElement>>(new Map());
   const ffmpegRef = useRef<FFmpeg | null>(null);
   const animationRef = useRef<number | null>(null);
@@ -197,13 +198,20 @@ export default function EditorPage() {
   const handlePhoto = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
     const url = URL.createObjectURL(file); const image = new Image();
-    image.onload = () => photoCache.current.set(url, image); image.src = url;
+    image.onload = () => {
+      photoCache.current.set(url, image);
+      setScenes((items) => items.map((scene) => scene.id === activeSceneId ? { ...scene } : scene));
+    };
+    image.onerror = () => setStatus("Photo load nahi hui. JPG, PNG ya WEBP file try karein.");
+    image.src = url;
     patchScene({ photoUrl: url, photoName: file.name });
   };
   const handleMusic = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
     if (musicUrl) URL.revokeObjectURL(musicUrl);
-    setMusicUrl(URL.createObjectURL(file)); setMusicName(file.name); setDownloadUrl("");
+    const nextUrl = URL.createObjectURL(file);
+    setMusicUrl(nextUrl); setMusicName(file.name); setDownloadUrl("");
+    setStatus(`Music loaded: ${file.name}. Preview ke liye Play dabayein.`);
   };
   const reorderScene = (event: DragEvent<HTMLButtonElement>, targetId: string) => {
     event.preventDefault();
@@ -220,12 +228,17 @@ export default function EditorPage() {
   const stopPlayback = () => {
     if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
     animationRef.current = null;
+    const audio = previewAudioRef.current;
+    if (audio) { audio.pause(); audio.currentTime = 0; }
     setIsPlaying(false);
   };
   const playPreview = () => {
     if (isPlaying) { stopPlayback(); return; }
     const canvas = canvasRef.current; const ctx = canvas?.getContext("2d"); if (!canvas || !ctx) return;
-    setIsPlaying(true); const started = performance.now();
+    setIsPlaying(true);
+    const audio = previewAudioRef.current;
+    if (audio && musicUrl) { audio.currentTime = 0; void audio.play().catch(() => setStatus("Browser ne music playback roka. Audio panel se Play dabakar allow karein.")); }
+    const started = performance.now();
     const frame = (now: number) => {
       const elapsed = (now - started) / 1000;
       if (elapsed >= totalDuration) { setPlayhead(0); stopPlayback(); return; }
@@ -310,7 +323,7 @@ export default function EditorPage() {
     }
   };
 
-  const canvasStyle: CSSProperties = { aspectRatio: aspect.replace(":", " / ") };
+  const canvasStyle: CSSProperties = { aspectRatio: aspect.replace(":", " / "), width: `min(100%, ${Math.round(560 * dimensions.width / dimensions.height)}px)`, height: `min(100%, 560px)` };
   const openPanel = (name: string) => { setPanel(name); setMobilePanelOpen(true); };
 
   return (
@@ -343,7 +356,7 @@ export default function EditorPage() {
             </div>}
             {panel === "Text" && <div className="space-y-3"><button onClick={addText} className="editor-secondary w-full">＋ Add text layer</button>{activeScene.layers.map((layer) => <button key={layer.id} onClick={() => setActiveLayerId(layer.id)} className={`layer-list-item ${activeLayerId === layer.id ? "selected" : ""}`}><span className="font-bold">T</span><span className="truncate text-left">{layer.text.replaceAll("\n", " ") || "Text layer"}</span></button>)}</div>}
             {panel === "Media" && <div className="space-y-4"><p className="text-xs leading-5 text-zinc-400">Selected scene mein apni image add karo. Template ke empty photo slot mein image fit hogi.</p><label className="upload-box"><span className="text-2xl">＋</span><b>Upload photo</b><small>PNG, JPG, WEBP</small><input type="file" accept="image/*" onChange={handlePhoto} className="sr-only" /></label>{activeScene.photoName && <div className="rounded-xl bg-white/5 p-3 text-xs text-zinc-300">{activeScene.photoName}<button onClick={() => patchScene({ photoUrl: undefined, photoName: undefined })} className="float-right text-rose-300">Remove</button></div>}<label className="label mt-4">Photo placement</label><select className="editor-select w-full" value={activeScene.photoSide ?? "right"} onChange={(e) => patchScene({ photoSide: e.target.value as Scene["photoSide"] })}><option value="left">Left side</option><option value="right">Right side</option></select></div>}
-            {panel === "Audio" && <div className="space-y-4"><div className="rounded-xl border border-white/10 bg-white/[.03] p-3"><div className="mb-2 flex items-center gap-2"><span className="text-xl text-fuchsia-300">♫</span><div><b className="block text-sm">Music track</b><small className="text-xs text-zinc-500">Local audio file</small></div></div><label className="upload-box"><span className="text-2xl">＋</span><b>Upload audio</b><small>MP3, WAV, M4A (browser support varies)</small><input type="file" accept="audio/*" onChange={handleMusic} className="sr-only" /></label>{musicName && <p className="mt-3 break-all text-xs text-zinc-300">{musicName}</p>}</div><p className="text-xs leading-5 text-zinc-500">Sirf apna ya royalty-free music use karein. Audio export browser aur codec support par depend karta hai.</p></div>}
+            {panel === "Audio" && <div className="space-y-4"><div className="rounded-xl border border-white/10 bg-white/[.03] p-3"><div className="mb-2 flex items-center gap-2"><span className="text-xl text-fuchsia-300">♫</span><div><b className="block text-sm">Music track</b><small className="text-xs text-zinc-500">Local audio file</small></div></div><label className="upload-box"><span className="text-2xl">＋</span><b>Upload audio</b><small>MP3, WAV, M4A (browser support varies)</small><input type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" onChange={handleMusic} className="sr-only" /></label>{musicName && <><p className="mt-3 break-all text-xs text-zinc-300">{musicName}</p><audio key={musicUrl} src={musicUrl} controls preload="metadata" className="mt-3 w-full" /></>}</div><p className="text-xs leading-5 text-zinc-500">Play dabakar music check karein. Timeline preview aur export mein music use hoga. Sirf apna ya licensed audio use karein.</p></div>}
             {panel === "Scenes" && <div className="space-y-3">
               <div className="flex items-center justify-between"><span className="text-xs text-zinc-500">{scenes.length} frames</span><button onClick={addScene} className="editor-secondary">＋ Add scene</button></div>
               {scenes.map((scene, index) => <motion.div layout key={scene.id} className={`scene-card ${scene.id === activeSceneId ? "selected" : ""}`}>
@@ -380,6 +393,7 @@ export default function EditorPage() {
         </aside>
       </div>
 
+      {musicUrl && <audio ref={previewAudioRef} src={musicUrl} preload="auto" loop className="hidden" />}
       <section className="editor-timeline">
         <div className="timeline-head"><div><h2 className="text-sm font-bold">Timeline</h2><p className="mt-1 text-[10px] text-zinc-500">{totalDuration}s total · {scenes.length} scenes</p></div><div className="flex items-center gap-2"><button onClick={addScene} className="editor-secondary">＋ Scene</button><button onClick={playPreview} className="editor-tool-btn">{isPlaying ? "Ⅱ" : "▶"}</button></div></div>
         <div className="timeline-ruler"><span>00:00</span><span>{Math.floor(totalDuration / 2)}s</span><span>{totalDuration}s</span></div>
