@@ -12,7 +12,7 @@ import { signInWithPopup } from "firebase/auth";
 type AnimationName = "fade" | "slide" | "pop" | "bounce" | "float" | "spin" | "shake" | "pulse";
 type AspectRatio = "9:16" | "1:1" | "16:9";
 type TextLayer = { id: string; text: string; color: string; fontFamily: string; fontSize: number; x: number; y: number; animation: AnimationName; scale: number; rotation?: number; outlineColor: string; outlineWidth: number; backgroundColor: string };
-type Scene = { id: string; name: string; background: string; duration: number; layers: TextLayer[]; photoUrl?: string; photoName?: string; photoSide?: "left" | "right"; photoX?: number; photoY?: number; photoScale?: number; photoRotation?: number };
+type Scene = { id: string; name: string; background: string; duration: number; layers: TextLayer[]; photoUrl?: string; photoName?: string; photoSide?: "left" | "right"; photoX?: number; photoY?: number; photoScale?: number; photoRotation?: number; videoUrl?: string; videoName?: string; trimStart?: number; trimEnd?: number };
 type ProjectState = { scenes: Scene[]; activeSceneId: string; activeLayerId: string; aspect: AspectRatio };
 
 const makeLayer = (id: string, text: string, color: string, fontFamily: string, fontSize: number, x: number, y: number, animation: AnimationName = "pop"): TextLayer => ({ id, text, color, fontFamily, fontSize, x, y, animation, scale: 1, outlineColor: "#111111", outlineWidth: 0, backgroundColor: "transparent" });
@@ -66,6 +66,7 @@ export default function EditorPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewAudioRef = useRef<HTMLAudioElement>(null);
   const photoCache = useRef<Map<string, HTMLImageElement>>(new Map());
+  const videoCache = useRef<Map<string, HTMLVideoElement>>(new Map());
   const ffmpegRef = useRef<FFmpeg | null>(null);
   const animationRef = useRef<number | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -175,6 +176,17 @@ export default function EditorPage() {
     return image;
   }, []);
 
+  const loadVideo = useCallback((scene: Scene) => {
+    if (!scene.videoUrl) return null;
+    const existing = videoCache.current.get(scene.videoUrl);
+    if (existing) return existing;
+    const video = document.createElement("video");
+    video.src = scene.videoUrl; video.preload = "auto"; video.muted = true; video.playsInline = true;
+    video.addEventListener("loadedmetadata", () => { if (scene.trimStart) video.currentTime = scene.trimStart; });
+    videoCache.current.set(scene.videoUrl, video);
+    return video;
+  }, []);
+
   const colorFromGradient = (value: string) => value.match(/#[0-9a-fA-F]{3,8}/g) ?? ["#32124a", "#9d174d"];
   const fillBackground = useCallback((ctx: CanvasRenderingContext2D, scene: Scene, width: number, height: number) => {
     const colors = colorFromGradient(scene.background);
@@ -189,6 +201,14 @@ export default function EditorPage() {
   const drawScene = useCallback((scene: Scene, elapsed: number, ctx: CanvasRenderingContext2D, width: number, height: number) => {
     ctx.clearRect(0, 0, width, height);
     fillBackground(ctx, scene, width, height);
+    const video = loadVideo(scene);
+    if (video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      const start = scene.trimStart ?? 0;
+      const end = scene.trimEnd ?? video.duration;
+      const target = Math.min(Math.max(start + elapsed, start), Math.max(start, end - 0.04));
+      if (Math.abs(video.currentTime - target) > 0.35 && video.paused) { try { video.currentTime = target; } catch { /* Metadata may still be loading. */ } }
+      try { ctx.drawImage(video, 0, 0, width, height); } catch { /* Keep the scene background until a frame is ready. */ }
+    }
     const image = loadPhoto(scene);
     if (image?.complete && image.naturalWidth) {
       const maxWidth = width * 0.54;
@@ -238,7 +258,7 @@ export default function EditorPage() {
       lines.forEach((line, index) => { const lineY = (index - (lines.length - 1) / 2) * lineHeight; if (layer.backgroundColor && layer.backgroundColor !== "transparent") { const metrics = ctx.measureText(line); ctx.fillStyle = layer.backgroundColor; ctx.fillRect(-metrics.width / 2 - size * 0.16, lineY - lineHeight * 0.43, metrics.width + size * 0.32, lineHeight * 0.86); ctx.fillStyle = layer.color; } if (layer.outlineWidth > 0) { ctx.lineJoin = "round"; ctx.strokeStyle = layer.outlineColor; ctx.lineWidth = layer.outlineWidth * (width / 1080); ctx.strokeText(line, 0, lineY, width * 0.88); } ctx.fillText(line, 0, lineY, width * 0.88); });
       ctx.restore();
     });
-  }, [fillBackground, loadPhoto]);
+  }, [fillBackground, loadPhoto, loadVideo]);
 
   useEffect(() => {
     const canvas = canvasRef.current; const ctx = canvas?.getContext("2d");
@@ -279,6 +299,17 @@ export default function EditorPage() {
     setPanel("Characters");
     setStatus(`${character} character added. Press Play to preview its animation.`);
   };
+  const handleVideo = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]; if (!file) return;
+    if (!file.type.startsWith("video/") && !/\\.(mp4|mov|webm)$/i.test(file.name)) { setStatus("Choose an MP4, MOV or WebM video."); return; }
+    if (file.size > 500 * 1024 * 1024) { setStatus("Video is over the 500 MB local import limit."); return; }
+    const url = URL.createObjectURL(file);
+    remember();
+    setScenes(items => items.map(scene => scene.id === activeSceneId ? { ...scene, videoUrl: url, videoName: file.name, trimStart: 0, trimEnd: undefined } : scene));
+    const video = document.createElement("video"); video.src = url; video.preload = "metadata"; video.onloadedmetadata = () => setScenes(items => items.map(scene => scene.id === activeSceneId ? { ...scene, duration: Math.max(0.5, Math.min(30, video.duration || 3)), trimEnd: video.duration } : scene)); videoCache.current.set(url, video);
+    setStatus(`Video imported: ${file.name}. Set trim points in Media.");
+  };
+
   const handlePhoto = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
     const url = URL.createObjectURL(file); const image = new Image();
@@ -443,7 +474,7 @@ export default function EditorPage() {
               <p className="text-xs leading-5 text-zinc-500">Trend-inspired original layouts, not a guarantee of virality. Use your own or licensed photos, clips and audio.</p>
             </div>}{panel === "Text" && <div className="space-y-3"><button onClick={addText} className="editor-secondary w-full">＋ Add text layer</button>{activeScene.layers.map((layer) => <button key={layer.id} onClick={() => setActiveLayerId(layer.id)} className={`layer-list-item ${activeLayerId === layer.id ? "selected" : ""}`}><span className="font-bold">T</span><span className="truncate text-left">{layer.text.replaceAll("\n", " ") || "Text layer"}</span></button>)}</div>}
             {panel === "Characters" && <div className="space-y-4"><div className="rounded-xl border border-fuchsia-400/20 bg-fuchsia-400/5 p-3"><b className="text-sm">Animated characters</b><p className="mt-1 text-xs leading-5 text-zinc-400">Choose a character to add it to the active scene. Select it, choose an animation, then press Play.</p></div>{characterPacks.map((pack) => <section key={pack.title}><h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-zinc-400">{pack.title}</h3><div className="grid grid-cols-4 gap-2">{pack.items.map((character) => <button key={character} title={`Add ${character}`} onClick={() => addCharacter(character)} className="flex aspect-square items-center justify-center rounded-xl border border-white/10 bg-white/[.04] text-2xl transition hover:border-fuchsia-400/60 hover:bg-fuchsia-400/10">{character}</button>)}</div></section>)}</div>}
-            {panel === "Media" && <div className="space-y-4"><p className="text-xs leading-5 text-zinc-400">Selected scene mein apni image add karo. Template ke empty photo slot mein image fit hogi.</p><label className="upload-box"><span className="text-2xl">＋</span><b>Upload photo</b><small>PNG, JPG, WEBP</small><input type="file" accept="image/*" onChange={handlePhoto} className="sr-only" /></label>{activeScene.photoName && <div className="rounded-xl bg-white/5 p-3 text-xs text-zinc-300">{activeScene.photoName}<button onClick={() => patchScene({ photoUrl: undefined, photoName: undefined })} className="float-right text-rose-300">Remove</button></div>}<label className="label mt-4">Photo placement</label><select className="editor-select w-full" value={activeScene.photoSide ?? "right"} onChange={(e) => patchScene({ photoSide: e.target.value as Scene["photoSide"] })}><option value="left">Left side</option><option value="right">Right side</option></select></div>}
+            {panel === "Media" && <div className="space-y-4"><p className="text-xs leading-5 text-zinc-400">Add a video clip or photo to this scene. Local media remains in this browser session.</p><label className="upload-box"><span className="text-2xl">▶</span><b>Import video clip</b><small>MP4, MOV, WEBM · max 500 MB</small><input type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" onChange={handleVideo} className="sr-only" /></label>{activeScene.videoName && <div className="rounded-xl border border-fuchsia-300/20 p-3 text-xs"><b className="block break-all">{activeScene.videoName}</b><div className="mt-3"><label className="label">Trim start · {(activeScene.trimStart ?? 0).toFixed(1)}s</label><input className="editor-range" type="range" min="0" max={Math.max(0.5, activeScene.trimEnd ?? activeScene.duration)} step="0.1" value={activeScene.trimStart ?? 0} onChange={e=>patchScene({trimStart:Math.min(Number(e.target.value),Math.max(0,(activeScene.trimEnd??activeScene.duration)-0.1))})}/></div><div className="mt-3"><label className="label">Trim end · {(activeScene.trimEnd ?? activeScene.duration).toFixed(1)}s</label><input className="editor-range" type="range" min={Math.max(0.1,activeScene.trimStart??0)+0.1} max={Math.max(0.5,videoCache.current.get(activeScene.videoUrl??"")?.duration??activeScene.duration)} step="0.1" value={activeScene.trimEnd ?? activeScene.duration} onChange={e=>patchScene({trimEnd:Math.max((activeScene.trimStart??0)+0.1,Number(e.target.value))})}/></div><button onClick={()=>{patchScene({videoUrl:undefined,videoName:undefined,trimStart:undefined,trimEnd:undefined});setStatus("Video removed.");}} className="mt-3 text-rose-300">Remove video</button></div>}<label className="upload-box"><span className="text-2xl">＋</span><b>Upload photo</b><small>PNG, JPG, WEBP</small><input type="file" accept="image/*" onChange={handlePhoto} className="sr-only" /></label>{activeScene.photoName && <div className="rounded-xl bg-white/5 p-3 text-xs text-zinc-300">{activeScene.photoName}<button onClick={() => patchScene({ photoUrl: undefined, photoName: undefined })} className="float-right text-rose-300">Remove</button></div>}<label className="label mt-4">Photo placement</label><select className="editor-select w-full" value={activeScene.photoSide ?? "right"} onChange={(e) => patchScene({ photoSide: e.target.value as Scene["photoSide"] })}><option value="left">Left side</option><option value="right">Right side</option></select></div>}
             {panel === "Audio" && <div className="space-y-4"><div className="rounded-xl border border-white/10 bg-white/[.03] p-3"><div className="mb-2 flex items-center gap-2"><span className="text-xl text-fuchsia-300">♫</span><div><b className="block text-sm">Music track</b><small className="text-xs text-zinc-500">Local audio file</small></div></div><label className="upload-box"><span className="text-2xl">＋</span><b>Upload audio</b><small>MP3, WAV, M4A (browser support varies)</small><input type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" onChange={handleMusic} className="sr-only" /></label>{musicName && <><p className="mt-3 break-all text-xs text-zinc-300">{musicName}</p><audio key={musicUrl} src={musicUrl} controls preload="metadata" className="mt-3 w-full" /></>}</div><p className="text-xs leading-5 text-zinc-500">Play dabakar music check karein. Timeline preview aur export mein music use hoga. Sirf apna ya licensed audio use karein.</p></div>}
             {panel === "Scenes" && <div className="space-y-3">
               <div className="flex items-center justify-between"><span className="text-xs text-zinc-500">{scenes.length} frames</span><button onClick={addScene} className="editor-secondary">＋ Add scene</button></div>
@@ -493,7 +524,7 @@ export default function EditorPage() {
             {scenes.map((scene, index) => <button draggable key={scene.id} onDragStart={() => { dragSceneId.current = scene.id; }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => reorderScene(e, scene.id)} onClick={() => { setActiveSceneId(scene.id); setActiveLayerId(scene.layers[0]?.id ?? ""); let before = 0; for (let i = 0; i < index; i++) before += scenes[i].duration; setPlayhead(before); }} style={{ flex: `${scene.duration} 1 0%`, background: scene.background }} className={`timeline-scene ${scene.id === activeSceneId ? "active" : ""}`}><span className="timeline-scene-number">{index + 1}</span><span className="timeline-scene-text">{scene.layers.map((layer) => layer.text).join(" · ")}</span><span className="timeline-scene-duration">{scene.duration}s</span></button>)}
             <div className="playhead" style={{ left: `${Math.min(100, playhead / Math.max(totalDuration, 1) * 100)}%` }}><span /></div>
           </div>
-          <div className="audio-track"><span className="audio-track-label">♫ {musicName || "Music track — upload audio"}</span>{musicUrl && <span className="audio-wave">▂▅▃▇▅▂▆▃▅▇▂▅▃▆▅▂▇▃▅▂▆▃▅▇▂▅▃▆▅▂▇▃▅▂▆▃▅▇</span>}</div>
+          <div className="audio-track"><span className="audio-track-label">▶ Video · {scenes.filter(scene=>scene.videoName).length ? scenes.filter(scene=>scene.videoName).map(scene=>scene.videoName).join(", ") : "Import a clip from Media"}</span></div><div className="audio-track"><span className="audio-track-label">T Text overlays · {scenes.reduce((n,scene)=>n+scene.layers.length,0)} layers</span></div><div className="audio-track"><span className="audio-track-label">♫ {musicName || "Music track — upload audio"}</span>{musicUrl && <span className="audio-wave">▂▅▃▇▅▂▆▃▅▇▂▅▃▆▅▂▇▃▅▂▆▃▅▇▂▅▃▆▅▂▇▃▅▂▆▃▅▇</span>}</div>
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px] text-zinc-600"><span>{status}</span>{isExporting && <span>{progress}%</span>}{downloadUrl && <a href={downloadUrl} download="reelmind-reel.mp4" className="rounded-lg bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-200">↓ Download MP4</a>}</div>
         {isExporting && <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/10"><div className="h-full bg-gradient-to-r from-violet-500 to-pink-500 transition-all" style={{ width: `${progress}%` }} /></div>}
