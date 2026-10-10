@@ -484,7 +484,7 @@ export default function EditorPage() {
           let remaining = elapsed; let scene = scenes[0];
           for (const item of scenes) { scene = item; if (remaining < item.duration) break; remaining -= item.duration; }
           syncSceneVideo(scene, remaining);
-          drawScene(scene, remaining, ctx, canvas.width, canvas.height);
+          drawScene(scene, remaining, ctx, renderCanvas.width, renderCanvas.height);
           requestAnimationFrame(frame);
         };
         requestAnimationFrame(frame);
