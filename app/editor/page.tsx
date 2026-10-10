@@ -452,11 +452,13 @@ export default function EditorPage() {
     let musicElement: HTMLAudioElement | undefined;
     let recorder: MediaRecorder | undefined;
     try {
-      renderCanvas = document.createElement("canvas");
+      const exportCanvas = document.createElement("canvas");
+      renderCanvas = exportCanvas;
       const base = exportQuality === "720p" ? 720 : 1080;
-      renderCanvas.width = aspect === "16:9" ? Math.round(base * 16 / 9) : base;
-      renderCanvas.height = aspect === "9:16" ? Math.round(base * 16 / 9) : aspect === "16:9" ? base : base;
-      stream = renderCanvas.captureStream(exportFps);
+      exportCanvas.width = aspect === "16:9" ? Math.round(base * 16 / 9) : base;
+      exportCanvas.height = aspect === "9:16" ? Math.round(base * 16 / 9) : aspect === "16:9" ? base : base;
+      stream = exportCanvas.captureStream(exportFps);
+      if (!stream) throw new Error("Could not capture export canvas.");
       if (musicUrl) {
         audioContext = new AudioContext(); musicElement = new Audio(musicUrl); musicElement.loop = false; musicElement.currentTime = audioTrimStart;
         audioSource = audioContext.createMediaElementSource(musicElement); audioGain = audioContext.createGain(); audioGain.gain.value = 0;
@@ -464,7 +466,7 @@ export default function EditorPage() {
         const destination = audioContext.createMediaStreamDestination();
         audioGain.connect(destination); audioGain.connect(audioContext.destination);
         musicElement.ontimeupdate = () => { if (audioTrimEnd > audioTrimStart && musicElement && musicElement.currentTime >= audioTrimEnd) musicElement.currentTime = audioTrimStart; };
-        destination.stream.getAudioTracks().forEach((track) => stream.addTrack(track));
+        destination.stream.getAudioTracks().forEach((track) => stream?.addTrack(track));
         await audioContext.resume();
       }
       const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") ? "video/webm;codecs=vp9,opus" : "video/webm";
@@ -473,7 +475,7 @@ export default function EditorPage() {
       const recorded = new Promise<Blob>((resolve, reject) => { recorder.onerror = () => reject(new Error("Browser recording failed.")); recorder.onstop = () => resolve(new Blob(chunksRef.current, { type: "video/webm" })); });
       await musicElement?.play().catch(() => setStatus("Music autoplay block hua; export bina music ke ho sakta hai."));
       recorder.start(250);
-      const ctx = renderCanvas?.getContext("2d"); if (!ctx) throw new Error("Export canvas context unavailable.");
+      const ctx = exportCanvas.getContext("2d"); if (!ctx) throw new Error("Export canvas context unavailable.");
       const started = performance.now();
       await new Promise<void>((resolve) => {
         const frame = (now: number) => {
@@ -484,7 +486,7 @@ export default function EditorPage() {
           let remaining = elapsed; let scene = scenes[0];
           for (const item of scenes) { scene = item; if (remaining < item.duration) break; remaining -= item.duration; }
           syncSceneVideo(scene, remaining);
-          drawScene(scene, remaining, ctx, renderCanvas.width, renderCanvas.height);
+          drawScene(scene, remaining, ctx, exportCanvas.width, exportCanvas.height);
           requestAnimationFrame(frame);
         };
         requestAnimationFrame(frame);
