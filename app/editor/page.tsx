@@ -69,10 +69,15 @@ export default function EditorPage() {
   };
   const applyTemplate = (template: Scene[]) => {
     remember();
-    setScenes(template.map((scene, index) => ({ ...scene, id: `scene-${Date.now()}-${index}`, layers: scene.layers.map((layer, layerIndex) => ({ ...layer, id: `layer-${Date.now()}-${index}-${layerIndex}` })) })));
-    const first = template[0];
-    setActiveSceneId(first ? `scene-${Date.now()}-0` : "");
-    setActiveLayerId(first ? `layer-${Date.now()}-0-0` : "");
+    const baseId = Date.now();
+    const nextScenes = template.map((scene, index) => ({
+      ...scene,
+      id: `scene-${baseId}-${index}`,
+      layers: scene.layers.map((layer, layerIndex) => ({ ...layer, id: `layer-${baseId}-${index}-${layerIndex}` }))
+    }));
+    setScenes(nextScenes);
+    setActiveSceneId(nextScenes[0]?.id ?? "");
+    setActiveLayerId(nextScenes[0]?.layers[0]?.id ?? "");
     setPanel("Scenes");
     setMobilePanelOpen(false);
   };
@@ -93,7 +98,7 @@ export default function EditorPage() {
     setDownloadUrl("");
   };
 
-  const loadPhoto = (scene: Scene) => {
+  const loadPhoto = useCallback((scene: Scene) => {
     if (!scene.photoUrl) return null;
     const existing = photoCache.current.get(scene.photoUrl);
     if (existing) return existing;
@@ -102,10 +107,10 @@ export default function EditorPage() {
     image.src = scene.photoUrl;
     photoCache.current.set(scene.photoUrl, image);
     return image;
-  };
+  }, []);
 
   const colorFromGradient = (value: string) => value.match(/#[0-9a-fA-F]{3,8}/g) ?? ["#32124a", "#9d174d"];
-  const fillBackground = (ctx: CanvasRenderingContext2D, scene: Scene, width: number, height: number) => {
+  const fillBackground = useCallback((ctx: CanvasRenderingContext2D, scene: Scene, width: number, height: number) => {
     const colors = colorFromGradient(scene.background);
     if (scene.background.startsWith("linear-gradient")) {
       const gradient = ctx.createLinearGradient(0, 0, width, height);
@@ -113,7 +118,7 @@ export default function EditorPage() {
       ctx.fillStyle = gradient;
     } else ctx.fillStyle = scene.background;
     ctx.fillRect(0, 0, width, height);
-  };
+  }, []);
 
   const drawScene = useCallback((scene: Scene, elapsed: number, ctx: CanvasRenderingContext2D, width: number, height: number) => {
     ctx.clearRect(0, 0, width, height);
@@ -156,7 +161,7 @@ export default function EditorPage() {
       lines.forEach((line, index) => ctx.fillText(line, 0, (index - (lines.length - 1) / 2) * lineHeight, width * 0.88));
       ctx.restore();
     });
-  }, []);
+  }, [fillBackground, loadPhoto]);
 
   useEffect(() => {
     const canvas = canvasRef.current; const ctx = canvas?.getContext("2d");
