@@ -178,7 +178,7 @@ export default function InteractiveCanvasOverlay({
         const isActive = activeLayerId === layer.id;
         const longestLine = Math.max(...layer.text.split("\n").map((line) => line.length), 1);
         const boxWidth = clamp((longestLine * layer.fontSize * 0.62 * (layer.scale ?? 1) / 1080) * 100, 12, 88);
-        const boxHeight = clamp((layer.fontSize * Math.max(1, layer.text.split("\n").length) * 1.2 * (layer.scale ?? 1) / 1920) * 100, 5, 42);
+        const boxHeight = clamp((layer.fontSize * (canvasWidth / 1080) * Math.max(1, layer.text.split("\n").length) * 1.2 * (layer.scale ?? 1) / canvasHeight) * 100, 5, 42);
         return (
           <div
             key={layer.id}
