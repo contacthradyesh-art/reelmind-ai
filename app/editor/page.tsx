@@ -234,7 +234,7 @@ export default function EditorPage() {
       ctx.translate(photoCenterX, photoCenterY); ctx.rotate(((scene.photoRotation ?? 0) * Math.PI) / 180); ctx.scale(photoScale, photoScale);
       ctx.drawImage(image, -imageWidth / 2, -imageHeight / 2, imageWidth, imageHeight);
       ctx.restore();
-    } else if (!scene.photoUrl) {
+    } else if (!scene.photoUrl && !scene.videoUrl) {
       // Empty image slot: subtle dashed frame signals where the creator can place a photo.
       const slotWidth = width * 0.34;
       const slotHeight = height * 0.36;
@@ -402,7 +402,11 @@ export default function EditorPage() {
       if (video) { const start = scene.trimStart ?? 0; try { video.currentTime = start; } catch { /* Wait for metadata. */ } void video.play().catch(() => setStatus("Browser could not play this video. Try a supported MP4 or WebM file.")); }
     }
     const video = loadVideo(scene);
-    if (video && video.paused && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) void video.play().catch(() => undefined);
+    if (video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      const trimEnd = scene.trimEnd ?? video.duration;
+      if (trimEnd > 0 && video.currentTime >= trimEnd) { video.pause(); try { video.currentTime = Math.max(scene.trimStart ?? 0, trimEnd - 0.04); } catch { /* Ignore until metadata is ready. */ } }
+      else if (video.paused) void video.play().catch(() => undefined);
+    }
   };
 
   const stopPlayback = () => {
