@@ -5,11 +5,12 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ChangeEvent, CSSProperties, DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
+import InteractiveCanvasOverlay from "@/components/editor/InteractiveCanvasOverlay";
 
 type AnimationName = "fade" | "slide" | "pop" | "bounce" | "float" | "spin" | "shake" | "pulse";
 type AspectRatio = "9:16" | "1:1" | "16:9";
-type TextLayer = { id: string; text: string; color: string; fontFamily: string; fontSize: number; x: number; y: number; animation: AnimationName; scale: number; outlineColor: string; outlineWidth: number; backgroundColor: string };
-type Scene = { id: string; name: string; background: string; duration: number; layers: TextLayer[]; photoUrl?: string; photoName?: string; photoSide?: "left" | "right" };
+type TextLayer = { id: string; text: string; color: string; fontFamily: string; fontSize: number; x: number; y: number; animation: AnimationName; scale: number; rotation?: number; outlineColor: string; outlineWidth: number; backgroundColor: string };
+type Scene = { id: string; name: string; background: string; duration: number; layers: TextLayer[]; photoUrl?: string; photoName?: string; photoSide?: "left" | "right"; photoX?: number; photoY?: number; photoScale?: number; photoRotation?: number };
 type ProjectState = { scenes: Scene[]; activeSceneId: string; activeLayerId: string; aspect: AspectRatio };
 
 const makeLayer = (id: string, text: string, color: string, fontFamily: string, fontSize: number, x: number, y: number, animation: AnimationName = "pop"): TextLayer => ({ id, text, color, fontFamily, fontSize, x, y, animation, scale: 1, outlineColor: "#111111", outlineWidth: 0, backgroundColor: "transparent" });
@@ -71,6 +72,7 @@ export default function EditorPage() {
   const [scenes, setScenes] = useState<Scene[]>(starterScenes);
   const [activeSceneId, setActiveSceneId] = useState(starterScenes[0].id);
   const [activeLayerId, setActiveLayerId] = useState(starterScenes[0].layers[0].id);
+  const [selectedTarget, setSelectedTarget] = useState<"layer" | "photo">("layer");
   const [aspect, setAspect] = useState<AspectRatio>("9:16");
   const [panel, setPanel] = useState("Scenes");
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
@@ -164,8 +166,12 @@ export default function EditorPage() {
       const imageWidth = image.naturalWidth * scale;
       const imageHeight = image.naturalHeight * scale;
       const imageX = scene.photoSide === "left" ? width * 0.04 : width * 0.96 - imageWidth;
+      const photoScale = scene.photoScale ?? 1;
+      const photoCenterX = width * ((scene.photoX ?? (scene.photoSide === "left" ? 25 : 75)) / 100);
+      const photoCenterY = height * ((scene.photoY ?? 50) / 100);
       ctx.save(); ctx.globalAlpha = 0.96;
-      ctx.drawImage(image, imageX, (height - imageHeight) / 2, imageWidth, imageHeight);
+      ctx.translate(photoCenterX, photoCenterY); ctx.rotate(((scene.photoRotation ?? 0) * Math.PI) / 180); ctx.scale(photoScale, photoScale);
+      ctx.drawImage(image, -imageWidth / 2, -imageHeight / 2, imageWidth, imageHeight);
       ctx.restore();
     } else if (!scene.photoUrl) {
       // Empty image slot: subtle dashed frame signals where the creator can place a photo.
@@ -193,7 +199,7 @@ export default function EditorPage() {
       if (layer.animation === "pulse") scale *= 1 + Math.sin(elapsed * 5) * 0.1;
       ctx.save(); ctx.globalAlpha = alpha;
       ctx.translate(width * layer.x / 100 + offsetX, height * layer.y / 100 + offsetY);
-      ctx.rotate(rotation); ctx.scale(scale * (layer.scale ?? 1), scale * (layer.scale ?? 1)); ctx.fillStyle = layer.color; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.rotate(rotation + (((layer.rotation ?? 0) * Math.PI) / 180)); ctx.scale(scale * (layer.scale ?? 1), scale * (layer.scale ?? 1)); ctx.fillStyle = layer.color; ctx.textAlign = "center"; ctx.textBaseline = "middle";
       const size = layer.fontSize * (width / 1080);
       ctx.font = `900 ${size}px "${layer.fontFamily}"`;
       ctx.shadowColor = "rgba(0,0,0,.24)"; ctx.shadowBlur = width / 70;
@@ -424,8 +430,8 @@ export default function EditorPage() {
 
         <section className="editor-stage">
           <div className="stage-toolbar"><div><span className="text-xs font-bold text-zinc-300">Preview</span><span className="ml-2 text-[10px] text-zinc-600">{dimensions.width} × {dimensions.height}</span></div><div className="flex items-center gap-2"><select aria-label="Canvas ratio" value={aspect} onChange={(e) => { remember(); setAspect(e.target.value as AspectRatio); }} className="editor-select sm:hidden"><option>9:16</option><option>1:1</option><option>16:9</option></select><span className="hidden rounded-md bg-white/5 px-2 py-1 text-[10px] text-zinc-500 sm:inline">{aspect}</span><button onClick={playPreview} disabled={isExporting} className="editor-play">{isPlaying ? "Ⅱ Pause" : "▶ Play"}</button></div></div>
-          <div className="stage-canvas-area"><div className="stage-glow" /><div className="stage-canvas-wrap" style={canvasStyle}><canvas ref={canvasRef} width={dimensions.width} height={dimensions.height} className="h-full w-full rounded-lg object-contain" aria-label="Video canvas preview" /></div></div>
-          <div className="stage-footnote"><span>◉ Browser preview</span><span>Drag scenes below to reorder</span></div>
+          <div className="stage-canvas-area"><div className="stage-glow" /><div className="stage-canvas-wrap relative" style={canvasStyle}><canvas ref={canvasRef} width={dimensions.width} height={dimensions.height} className="h-full w-full rounded-lg object-contain" aria-label="Video canvas preview" /><InteractiveCanvasOverlay layers={activeScene.layers} activeLayerId={selectedTarget === "photo" ? "__photo__" : activeLayerId} photoName={activeScene.photoName} photoSide={activeScene.photoSide} photoTransform={{ x: activeScene.photoX ?? (activeScene.photoSide === "left" ? 25 : 75), y: activeScene.photoY ?? 50, scale: activeScene.photoScale ?? 1, rotation: activeScene.photoRotation ?? 0 }} onSelectLayer={(id) => { setSelectedTarget("layer"); setActiveLayerId(id); }} onTransformLayer={(id, patch) => { setScenes((items) => items.map((scene) => scene.id !== activeSceneId ? scene : { ...scene, layers: scene.layers.map((layer) => layer.id === id ? { ...layer, ...patch } : layer) })); setDownloadUrl(""); }} onSelectPhoto={() => setSelectedTarget("photo")} onTransformPhoto={(patch) => { setSelectedTarget("photo"); setScenes((items) => items.map((scene) => scene.id === activeSceneId ? { ...scene, photoX: patch.x, photoY: patch.y, photoScale: patch.scale, photoRotation: patch.rotation } : scene)); setDownloadUrl(""); }} disabled={isPlaying || isExporting} /></div></div>
+          <div className="stage-footnote"><span>◉ Browser preview</span><span>Drag layers to move · corner handle to scale · top handle to rotate</span></div>
         </section>
 
         <aside className={`editor-properties ${mobilePanelOpen && panel === "Properties" ? "mobile-properties-open" : ""}`}>
