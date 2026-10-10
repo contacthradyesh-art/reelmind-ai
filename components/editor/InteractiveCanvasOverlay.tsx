@@ -33,6 +33,7 @@ type Props = {
   onTransformLayer: (id: string, patch: Partial<EditableCanvasLayer>) => void;
   onTransformPhoto: (patch: PhotoTransform) => void;
   onSelectPhoto: () => void;
+  onGestureStart?: () => void;
   canvasWidth: number;
   canvasHeight: number;
   disabled?: boolean;
@@ -49,6 +50,7 @@ export default function InteractiveCanvasOverlay({
   onTransformLayer,
   onTransformPhoto,
   onSelectPhoto,
+  onGestureStart,
   canvasWidth,
   canvasHeight,
   disabled = false,
@@ -84,6 +86,7 @@ export default function InteractiveCanvasOverlay({
     event.preventDefault();
     event.stopPropagation();
     select();
+    onGestureStart?.();
     const rect = surfaceRef.current.getBoundingClientRect();
     const centerClientX = rect.left + (values.x / 100) * rect.width;
     const centerClientY = rect.top + (values.y / 100) * rect.height;
