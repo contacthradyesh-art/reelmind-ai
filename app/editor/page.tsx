@@ -104,6 +104,50 @@ export default function EditorPage() {
   const [future, setFuture] = useState<ProjectState[]>([]);
   const [hasLoadedProject, setHasLoadedProject] = useState(false);
 
+  useEffect(() => {
+    let cancelled = false;
+    const restore = async () => {
+      try {
+        const saved = await loadEditorProject();
+        if (cancelled) return;
+        if (saved?.scenes?.length) {
+          const restoredScenes = saved.scenes as Scene[];
+          setScenes(restoredScenes);
+          setActiveSceneId(saved.activeSceneId || restoredScenes[0].id);
+          setActiveLayerId(saved.activeLayerId || restoredScenes[0].layers[0]?.id || "");
+          setAspect(saved.aspect || "9:16");
+          setMusicUrl(saved.musicUrl || "");
+          setMusicName(saved.musicName || "");
+          setStatus("Draft restored from this device.");
+        }
+      } catch (error) {
+        console.warn("ReelMind local draft restore failed:", error);
+        if (!cancelled) setStatus("Local autosave is unavailable in this browser session.");
+      } finally {
+        if (!cancelled) setHasLoadedProject(true);
+      }
+    };
+    void restore();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedProject) return;
+    const timeout = window.setTimeout(() => {
+      const project: StoredEditorProject = {
+        scenes, activeSceneId, activeLayerId, aspect, musicUrl, musicName, savedAt: Date.now()
+      };
+      setStatus("Saving draft on this device…");
+      void saveEditorProject(project)
+        .then(() => setStatus("Saved locally · " + new Date(project.savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })))
+        .catch((error) => {
+          console.warn("ReelMind local draft save failed:", error);
+          setStatus("Autosave failed. Keep this tab open and export a backup.");
+        });
+    }, 700);
+    return () => window.clearTimeout(timeout);
+  }, [hasLoadedProject, scenes, activeSceneId, activeLayerId, aspect, musicUrl, musicName]);
+
   const activeScene = scenes.find((scene) => scene.id === activeSceneId) ?? scenes[0];
   const activeLayer = activeScene.layers.find((layer) => layer.id === activeLayerId) ?? activeScene.layers[0];
   const totalDuration = useMemo(() => scenes.reduce((sum, scene) => sum + scene.duration, 0), [scenes]);
