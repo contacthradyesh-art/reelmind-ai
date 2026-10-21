@@ -1,7 +1,7 @@
 # ReelMind AI — Phase 0 quality report
 
 ## Current verified baseline
-- Next.js 15.5.3, React 19.1.1, TypeScript, Tailwind CSS v4, Framer Motion.
+- Next.js 15.5.9, React 19.1.2, TypeScript, Tailwind CSS v4, Framer Motion 12.23.22 with motion-dom pinned to 12.40.0 for compatibility.
 - Main editor page contains template definitions, canvas renderer, preview/playback, timeline and browser-side export in one client component.
 - The current export path records a canvas stream to WebM in real time and converts it to MP4 with ffmpeg.wasm.
 - No backend is currently required for the editor prototype; AI environment variables are placeholders for a future phase.
@@ -17,7 +17,7 @@
 - Added GitHub Actions quality workflow for install, lint, typecheck and build.
 
 ## Validation status
-The branch was created and the changes were committed through the GitHub connector. I have not yet run the workflow in a clean checkout, so the changes are not considered green until GitHub Actions and a Vercel preview succeed.
+GitHub Actions passed lint, TypeScript typecheck and production build on commit `f0c501caee7cdba82ca12c43bbc987fb3d03c7c6`. Vercel preview for that commit reached READY. This verifies compilation and deployment, but not interactive browser behavior or exported MP4 playback.
 
 ## Manual test checklist
 1. Open the preview in desktop Chrome or Edge.
