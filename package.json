@@ -13,10 +13,11 @@
     "@ffmpeg/core": "0.12.10",
     "@ffmpeg/ffmpeg": "0.12.15",
     "@ffmpeg/util": "0.12.2",
-    "framer-motion": "12.23.12",
-    "next": "15.5.3",
-    "react": "19.1.1",
-    "react-dom": "19.1.1"
+    "framer-motion": "12.23.22",
+    "next": "15.5.9",
+    "react": "19.1.2",
+    "react-dom": "19.1.2",
+    "motion-dom": "12.40.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.1.14",
@@ -24,7 +25,7 @@
     "@types/react": "19.1.16",
     "@types/react-dom": "19.1.9",
     "eslint": "9.39.1",
-    "eslint-config-next": "15.5.3",
+    "eslint-config-next": "15.5.9",
     "tailwindcss": "4.1.14",
     "typescript": "5.9.3"
   },
