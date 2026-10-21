@@ -15,7 +15,7 @@ Use the Node version declared in `.nvmrc`.
 ## Getting started
 
 ```bash
-npm ci
+npm install
 npm run dev
 ```
 
