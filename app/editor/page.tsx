@@ -309,23 +309,37 @@ export default function EditorPage() {
     setPanel("Characters");
     setStatus(`${character} character added. Press Play to preview its animation.`);
   };
-  const handlePhoto = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]; if (!file) return;
-    const url = URL.createObjectURL(file); const image = new Image();
-    image.onload = () => {
-      photoCache.current.set(url, image);
-      setScenes((items) => items.map((scene) => scene.id === activeSceneId ? { ...scene } : scene));
-    };
-    image.onerror = () => setStatus("Photo load nahi hui. JPG, PNG ya WEBP file try karein.");
-    image.src = url;
-    patchScene({ photoUrl: url, photoName: file.name });
+  const handlePhoto = async (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0]; if (!file) return;
+    if (!file.type.startsWith("image/")) { setStatus("Please choose an image file."); input.value = ""; return; }
+    try {
+      const url = await fileAsDataUrl(file);
+      const image = new Image();
+      image.onload = () => photoCache.current.set(url, image);
+      image.onerror = () => setStatus("Photo load nahi hui. JPG, PNG ya WEBP file try karein.");
+      image.src = url;
+      patchScene({ photoUrl: url, photoName: file.name });
+      setStatus(`Photo loaded: ${file.name}. Draft autosave ho jayega.`);
+    } catch {
+      setStatus("Photo read nahi hui. Dusri JPG, PNG ya WEBP file try karein.");
+    } finally {
+      input.value = "";
+    }
   };
-  const handleMusic = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]; if (!file) return;
-    if (musicUrl) URL.revokeObjectURL(musicUrl);
-    const nextUrl = URL.createObjectURL(file);
-    setMusicUrl(nextUrl); setMusicName(file.name); setDownloadUrl("");
-    setStatus(`Music loaded: ${file.name}. Preview ke liye Play dabayein.`);
+  const handleMusic = async (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0]; if (!file) return;
+    if (!file.type.startsWith("audio/")) { setStatus("Please choose an audio file."); input.value = ""; return; }
+    try {
+      const nextUrl = await fileAsDataUrl(file);
+      setMusicUrl(nextUrl); setMusicName(file.name); setDownloadUrl("");
+      setStatus(`Music loaded: ${file.name}. Draft autosave ho jayega.`);
+    } catch {
+      setStatus("Audio read nahi hui. Dusri audio file try karein.");
+    } finally {
+      input.value = "";
+    }
   };
   const reorderScene = (event: DragEvent<HTMLButtonElement>, targetId: string) => {
     event.preventDefault();
