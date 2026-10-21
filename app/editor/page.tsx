@@ -199,11 +199,14 @@ export default function EditorPage() {
     const existing = photoCache.current.get(scene.photoUrl);
     if (existing) return existing;
     const image = new Image();
-    image.onload = () => photoCache.current.set(scene.photoUrl!, image);
+    image.onload = () => {
+      photoCache.current.set(scene.photoUrl!, image);
+      setScenes((items) => items.map((item) => item.id === scene.id ? { ...item } : item));
+    };
     image.src = scene.photoUrl;
     photoCache.current.set(scene.photoUrl, image);
     return image;
-  }, []);
+  }, [setScenes]);
 
   const colorFromGradient = (value: string) => value.match(/#[0-9a-fA-F]{3,8}/g) ?? ["#32124a", "#9d174d"];
   const fillBackground = useCallback((ctx: CanvasRenderingContext2D, scene: Scene, width: number, height: number) => {
@@ -314,10 +317,6 @@ export default function EditorPage() {
     if (!file.type.startsWith("image/")) { setStatus("Please choose an image file."); input.value = ""; return; }
     try {
       const url = await fileAsDataUrl(file);
-      const image = new Image();
-      image.onload = () => photoCache.current.set(url, image);
-      image.onerror = () => setStatus("Photo load nahi hui. JPG, PNG ya WEBP file try karein.");
-      image.src = url;
       patchScene({ photoUrl: url, photoName: file.name });
       setStatus(`Photo loaded: ${file.name}. Draft autosave ho jayega.`);
     } catch {
