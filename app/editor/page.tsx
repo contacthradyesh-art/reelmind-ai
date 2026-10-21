@@ -97,7 +97,7 @@ export default function EditorPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [playhead, setPlayhead] = useState(0);
-  const [status, setStatus] = useState("All changes are saved in this session");
+  const [status, setStatus] = useState("Loading local draft…");
   const [progress, setProgress] = useState(0);
   const [downloadUrl, setDownloadUrl] = useState("");
   const [history, setHistory] = useState<ProjectState[]>([]);
@@ -226,7 +226,6 @@ export default function EditorPage() {
       const scale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
       const imageWidth = image.naturalWidth * scale;
       const imageHeight = image.naturalHeight * scale;
-      const imageX = scene.photoSide === "left" ? width * 0.04 : width * 0.96 - imageWidth;
       const photoScale = scene.photoScale ?? 1;
       const photoCenterX = width * ((scene.photoX ?? (scene.photoSide === "left" ? 30 : 70)) / 100);
       const photoCenterY = height * ((scene.photoY ?? 50) / 100);
