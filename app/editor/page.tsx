@@ -6,6 +6,7 @@ import { ChangeEvent, CSSProperties, DragEvent, useCallback, useEffect, useMemo,
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import InteractiveCanvasOverlay from "@/components/editor/InteractiveCanvasOverlay";
+import { fileAsDataUrl, loadEditorProject, saveEditorProject, type StoredEditorProject } from "@/lib/editor/project-storage";
 
 type AnimationName = "fade" | "slide" | "pop" | "bounce" | "float" | "spin" | "shake" | "pulse";
 type AspectRatio = "9:16" | "1:1" | "16:9";
@@ -96,11 +97,56 @@ export default function EditorPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [playhead, setPlayhead] = useState(0);
-  const [status, setStatus] = useState("All changes are saved in this session");
+  const [status, setStatus] = useState("Loading local draft…");
   const [progress, setProgress] = useState(0);
   const [downloadUrl, setDownloadUrl] = useState("");
   const [history, setHistory] = useState<ProjectState[]>([]);
   const [future, setFuture] = useState<ProjectState[]>([]);
+  const [hasLoadedProject, setHasLoadedProject] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const restore = async () => {
+      try {
+        const saved = await loadEditorProject();
+        if (cancelled) return;
+        if (saved?.scenes?.length) {
+          const restoredScenes = saved.scenes as Scene[];
+          setScenes(restoredScenes);
+          setActiveSceneId(saved.activeSceneId || restoredScenes[0].id);
+          setActiveLayerId(saved.activeLayerId || restoredScenes[0].layers[0]?.id || "");
+          setAspect(saved.aspect || "9:16");
+          setMusicUrl(saved.musicUrl || "");
+          setMusicName(saved.musicName || "");
+          setStatus("Draft restored from this device.");
+        }
+      } catch (error) {
+        console.warn("ReelMind local draft restore failed:", error);
+        if (!cancelled) setStatus("Local autosave is unavailable in this browser session.");
+      } finally {
+        if (!cancelled) setHasLoadedProject(true);
+      }
+    };
+    void restore();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedProject) return;
+    const timeout = window.setTimeout(() => {
+      const project: StoredEditorProject = {
+        scenes, activeSceneId, activeLayerId, aspect, musicUrl, musicName, savedAt: Date.now()
+      };
+      setStatus("Saving draft on this device…");
+      void saveEditorProject(project)
+        .then(() => setStatus("Saved locally · " + new Date(project.savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })))
+        .catch((error) => {
+          console.warn("ReelMind local draft save failed:", error);
+          setStatus("Autosave failed. Keep this tab open and export a backup.");
+        });
+    }, 700);
+    return () => window.clearTimeout(timeout);
+  }, [hasLoadedProject, scenes, activeSceneId, activeLayerId, aspect, musicUrl, musicName]);
 
   const activeScene = scenes.find((scene) => scene.id === activeSceneId) ?? scenes[0];
   const activeLayer = activeScene.layers.find((layer) => layer.id === activeLayerId) ?? activeScene.layers[0];
@@ -153,11 +199,14 @@ export default function EditorPage() {
     const existing = photoCache.current.get(scene.photoUrl);
     if (existing) return existing;
     const image = new Image();
-    image.onload = () => photoCache.current.set(scene.photoUrl!, image);
+    image.onload = () => {
+      photoCache.current.set(scene.photoUrl!, image);
+      setScenes((items) => items.map((item) => item.id === scene.id ? { ...item } : item));
+    };
     image.src = scene.photoUrl;
     photoCache.current.set(scene.photoUrl, image);
     return image;
-  }, []);
+  }, [setScenes]);
 
   const colorFromGradient = (value: string) => value.match(/#[0-9a-fA-F]{3,8}/g) ?? ["#32124a", "#9d174d"];
   const fillBackground = useCallback((ctx: CanvasRenderingContext2D, scene: Scene, width: number, height: number) => {
@@ -180,7 +229,6 @@ export default function EditorPage() {
       const scale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
       const imageWidth = image.naturalWidth * scale;
       const imageHeight = image.naturalHeight * scale;
-      const imageX = scene.photoSide === "left" ? width * 0.04 : width * 0.96 - imageWidth;
       const photoScale = scene.photoScale ?? 1;
       const photoCenterX = width * ((scene.photoX ?? (scene.photoSide === "left" ? 30 : 70)) / 100);
       const photoCenterY = height * ((scene.photoY ?? 50) / 100);
@@ -263,23 +311,33 @@ export default function EditorPage() {
     setPanel("Characters");
     setStatus(`${character} character added. Press Play to preview its animation.`);
   };
-  const handlePhoto = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]; if (!file) return;
-    const url = URL.createObjectURL(file); const image = new Image();
-    image.onload = () => {
-      photoCache.current.set(url, image);
-      setScenes((items) => items.map((scene) => scene.id === activeSceneId ? { ...scene } : scene));
-    };
-    image.onerror = () => setStatus("Photo load nahi hui. JPG, PNG ya WEBP file try karein.");
-    image.src = url;
-    patchScene({ photoUrl: url, photoName: file.name });
+  const handlePhoto = async (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0]; if (!file) return;
+    if (!file.type.startsWith("image/")) { setStatus("Please choose an image file."); input.value = ""; return; }
+    try {
+      const url = await fileAsDataUrl(file);
+      patchScene({ photoUrl: url, photoName: file.name });
+      setStatus(`Photo loaded: ${file.name}. Draft autosave ho jayega.`);
+    } catch {
+      setStatus("Photo read nahi hui. Dusri JPG, PNG ya WEBP file try karein.");
+    } finally {
+      input.value = "";
+    }
   };
-  const handleMusic = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]; if (!file) return;
-    if (musicUrl) URL.revokeObjectURL(musicUrl);
-    const nextUrl = URL.createObjectURL(file);
-    setMusicUrl(nextUrl); setMusicName(file.name); setDownloadUrl("");
-    setStatus(`Music loaded: ${file.name}. Preview ke liye Play dabayein.`);
+  const handleMusic = async (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0]; if (!file) return;
+    if (!file.type.startsWith("audio/")) { setStatus("Please choose an audio file."); input.value = ""; return; }
+    try {
+      const nextUrl = await fileAsDataUrl(file);
+      setMusicUrl(nextUrl); setMusicName(file.name); setDownloadUrl("");
+      setStatus(`Music loaded: ${file.name}. Draft autosave ho jayega.`);
+    } catch {
+      setStatus("Audio read nahi hui. Dusri audio file try karein.");
+    } finally {
+      input.value = "";
+    }
   };
   const reorderScene = (event: DragEvent<HTMLButtonElement>, targetId: string) => {
     event.preventDefault();
