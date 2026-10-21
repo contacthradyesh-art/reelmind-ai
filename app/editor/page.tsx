@@ -6,6 +6,7 @@ import { ChangeEvent, CSSProperties, DragEvent, useCallback, useEffect, useMemo,
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import InteractiveCanvasOverlay from "@/components/editor/InteractiveCanvasOverlay";
+import { fileAsDataUrl, loadEditorProject, saveEditorProject, type StoredEditorProject } from "@/lib/editor/project-storage";
 
 type AnimationName = "fade" | "slide" | "pop" | "bounce" | "float" | "spin" | "shake" | "pulse";
 type AspectRatio = "9:16" | "1:1" | "16:9";
@@ -101,6 +102,7 @@ export default function EditorPage() {
   const [downloadUrl, setDownloadUrl] = useState("");
   const [history, setHistory] = useState<ProjectState[]>([]);
   const [future, setFuture] = useState<ProjectState[]>([]);
+  const [hasLoadedProject, setHasLoadedProject] = useState(false);
 
   const activeScene = scenes.find((scene) => scene.id === activeSceneId) ?? scenes[0];
   const activeLayer = activeScene.layers.find((layer) => layer.id === activeLayerId) ?? activeScene.layers[0];
