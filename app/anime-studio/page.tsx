@@ -71,6 +71,9 @@ export default function AnimeStudioPage() {
   const [captions, setCaptions] = useState(true);
   const [saved, setSaved] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
+  const previewFrame = useRef<number | null>(null);
+  const [assetVersion, setAssetVersion] = useState(0);
   const active = scenes.find((scene) => scene.id === activeScene) ?? scenes[0];
   const selectedCharacter = characters.find((character) => character.id === activeCharacter) ?? characters[0];
   const currentSpeaker = characters.find((character) => character.id === active.speakerId);
@@ -93,6 +96,15 @@ export default function AnimeStudioPage() {
     return () => window.clearTimeout(timer);
   }, [characters, scenes]);
 
+  const getImage = (src: string) => {
+    const cached = imageCache.current.get(src);
+    if (cached) return cached;
+    const image = new Image();
+    image.onload = () => setAssetVersion((value) => value + 1);
+    image.src = src;
+    imageCache.current.set(src, image);
+    return image;
+  };
   const draw = (scene: StoryScene, time = 0) => {
     const canvas = canvasRef.current; const ctx = canvas?.getContext("2d"); if (!canvas || !ctx) return;
     const w = canvas.width, h = canvas.height;
@@ -100,7 +112,7 @@ export default function AnimeStudioPage() {
     gradient.addColorStop(0, "#050b1b"); gradient.addColorStop(.55, "#101b3a"); gradient.addColorStop(1, "#080b19");
     ctx.fillStyle = gradient; ctx.fillRect(0, 0, w, h);
     if (scene.backgroundImage) {
-      const image = new Image(); image.src = scene.backgroundImage;
+      const image = getImage(scene.backgroundImage);
       if (image.complete && image.naturalWidth) {
         const scale = Math.max(w / image.width, h / image.height);
         ctx.drawImage(image, (w-image.width*scale)/2, (h-image.height*scale)/2, image.width*scale, image.height*scale);
@@ -124,7 +136,7 @@ export default function AnimeStudioPage() {
     }
     const actor = characters.find(c=>c.id===scene.speakerId);
     if (actor?.image) {
-      const img = new Image(); img.src=actor.image;
+      const img = getImage(actor.image);
       if (img.complete && img.naturalWidth) {
         const iw=w*.64, ih=h*.5, scale=Math.min(iw/img.width,ih/img.height), dw=img.width*scale, dh=img.height*scale;
         ctx.drawImage(img,(w-dw)/2,h*.38-dh/2+Math.sin(time*1.8)*3,dw,dh);
@@ -143,7 +155,8 @@ export default function AnimeStudioPage() {
     }
   };
 
-  useEffect(() => { draw(active, 0); }, [active, characters, moon, wind, captions]);
+  useEffect(() => { if (!isPlaying && !isExporting) draw(active, 0); }, [active, characters, moon, wind, captions, assetVersion, isPlaying, isExporting]);
+  useEffect(() => () => { if (previewFrame.current !== null) cancelAnimationFrame(previewFrame.current); }, []);
 
   const updateCharacter = (id: string, patch: Partial<Character>) => setCharacters(items=>items.map(c=>c.id===id?{...c,...patch}:c));
   const updateScene = (id: string, patch: Partial<StoryScene>) => setScenes(items=>items.map(s=>s.id===id?{...s,...patch}:s));
@@ -154,23 +167,42 @@ export default function AnimeStudioPage() {
   const removeScene = (id:string) => { if(scenes.length===1)return; const next=scenes.filter(s=>s.id!==id);setScenes(next);if(activeScene===id)setActiveScene(next[0].id); };
   const addCharacterSlot = () => { const id="character-"+Date.now();setCharacters(items=>[...items,{id,name:"New character",role:"Custom role",outfit:"Describe hairstyle and outfit",voice:"Add ElevenLabs Voice ID"}]);setActiveCharacter(id);setTab("characters"); };
   const exportProject = () => { const blob=new Blob([JSON.stringify({title:"HUM CHAAR DOST",format:"9:16",style:"anime-night-moonlight",characters:characters.map(({image,...c})=>({...c,hasReference:!!image})),scenes:scenes.map(({backgroundImage,audioUrl,...s})=>({...s,hasBackground:!!backgroundImage,hasAudio:!!audioUrl}))},null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="hum-chaar-dost-project.json";a.click();URL.revokeObjectURL(url); };
+  const playScenePreview = () => {
+    if (isPlaying) { if (previewFrame.current !== null) cancelAnimationFrame(previewFrame.current); previewFrame.current = null; setIsPlaying(false); draw(active, 0); return; }
+    if (isExporting) return;
+    setIsPlaying(true);
+    const started = performance.now();
+    const frame = (now: number) => {
+      const elapsed = (now - started) / 1000;
+      if (elapsed >= active.duration) { previewFrame.current = null; setIsPlaying(false); draw(active, 0); return; }
+      draw(active, elapsed);
+      previewFrame.current = requestAnimationFrame(frame);
+    };
+    previewFrame.current = requestAnimationFrame(frame);
+  };
   const exportVideo = async () => {
     const canvas=canvasRef.current;if(!canvas||!canvas.captureStream||!("MediaRecorder" in window)){setStatus("Video export needs a modern Chrome or Edge browser.");return;}
     setIsExporting(true);setStatus("Recording animated anime-style scene…");
-    const stream=canvas.captureStream(30);const chunks:BlobPart[]=[];const recorder=new MediaRecorder(stream,{mimeType:MediaRecorder.isTypeSupported("video/webm;codecs=vp9")?"video/webm;codecs=vp9":"video/webm"});
+    const stream=canvas.captureStream(30);const chunks:BlobPart[]=[];const recorder=new MediaRecorder(stream,{mimeType:MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")?"video/webm;codecs=vp9,opus":"video/webm"});
     recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
     const done=new Promise<void>(resolve=>{recorder.onstop=()=>resolve();});
     const started=performance.now(); const duration=totalDuration;
-    let audio:HTMLAudioElement|undefined;let audioCtx:AudioContext|undefined;let source:MediaElementAudioSourceNode|undefined;
+    let audioCtx:AudioContext|undefined; const audioSources:AudioBufferSourceNode[]=[];
     try{
-      audioCtx=new AudioContext();const dest=audioCtx.createMediaStreamDestination(); 
-      const activeAudio=scenes.find(s=>s.audioUrl)?.audioUrl;
-      if(activeAudio){audio=new Audio(activeAudio);audio.loop=true;source=audioCtx.createMediaElementSource(audio);source.connect(dest);source.connect(audioCtx.destination);dest.stream.getAudioTracks().forEach(t=>stream.addTrack(t));await audioCtx.resume();}
-      recorder.start(200);await audio?.play().catch(()=>undefined);
+      if(scenes.some(s=>s.audioUrl)){
+        audioCtx=new AudioContext(); const dest=audioCtx.createMediaStreamDestination();
+        let offset=0;
+        for(const scene of scenes){
+          if(scene.audioUrl){const response=await fetch(scene.audioUrl);const bytes=await response.arrayBuffer();const buffer=await audioCtx.decodeAudioData(bytes.slice(0));const source=audioCtx.createBufferSource();source.buffer=buffer;source.connect(dest);source.start(audioCtx.currentTime+offset);audioSources.push(source);}
+          offset+=scene.duration;
+        }
+        dest.stream.getAudioTracks().forEach(t=>stream.addTrack(t)); await audioCtx.resume();
+      }
+      recorder.start(200);
       await new Promise<void>(resolve=>{const frame=(now:number)=>{const elapsed=(now-started)/1000;if(elapsed>=duration){resolve();return;}let t=elapsed;let scene=scenes[0];for(const item of scenes){scene=item;if(t<item.duration)break;t-=item.duration;}draw(scene,t);requestAnimationFrame(frame);};requestAnimationFrame(frame);});
       recorder.stop();await done;const blob=new Blob(chunks,{type:recorder.mimeType||"video/webm"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="hum-chaar-dost-episode-01.webm";a.click();setStatus("WebM video downloaded. Open in CapCut to add final voice timing and music.");setTimeout(()=>URL.revokeObjectURL(url),60000);
     }catch(error){setStatus(error instanceof Error?error.message:"Video export failed.");if(recorder.state!=="inactive")recorder.stop();}
-    finally{stream.getTracks().forEach(t=>t.stop());audio?.pause();source?.disconnect();await audioCtx?.close().catch(()=>undefined);setIsExporting(false);draw(active,0);}
+    finally{stream.getTracks().forEach(t=>t.stop());audioSources.forEach(source=>{try{source.stop();}catch{/* already ended */}});await audioCtx?.close().catch(()=>undefined);setIsExporting(false);draw(active,0);}
   };
 
   return <main className="min-h-screen bg-[#080b16] text-white">
@@ -181,7 +213,7 @@ export default function AnimeStudioPage() {
     <section className="mx-auto grid max-w-7xl gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_390px]">
       <div className="space-y-4">
         <div className="rounded-2xl border border-sky-300/20 bg-gradient-to-r from-sky-400/10 to-violet-500/10 p-4"><div className="text-xs font-bold uppercase tracking-[.2em] text-sky-200">Night anime universe</div><h1 className="mt-1 text-2xl font-black">Create your next episode</h1><p className="mt-1 text-sm text-slate-400">Five character slots · scene-by-scene dialogue · ElevenLabs audio · 9:16 preview and export.</p><div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-300"><span className="rounded-full bg-white/10 px-3 py-1">🌙 Moonlight</span><span className="rounded-full bg-white/10 px-3 py-1">🍃 Soft breeze</span><span className="rounded-full bg-white/10 px-3 py-1">🎞 Anime mood</span><span className="rounded-full bg-white/10 px-3 py-1">Autosave: {saved?"Saved":"Saving…"}</span></div></div>
-        <div className="rounded-2xl border border-white/10 bg-[#11182a] p-3 sm:p-4"><div className="mb-3 flex items-center justify-between"><div><h2 className="font-bold">Live vertical preview</h2><p className="text-xs text-slate-400">Moonlit rooftop · moving breeze · dialogue captions</p></div><button onClick={()=>draw(active,1.5)} className="rounded-lg bg-white/10 px-3 py-2 text-xs">Refresh preview</button></div><div className="mx-auto w-full max-w-[310px] overflow-hidden rounded-2xl border border-sky-100/20 bg-black shadow-[0_0_55px_#315b9b33]"><canvas ref={canvasRef} width={540} height={960} className="block h-auto w-full"/></div><p className="mt-3 text-center text-[11px] text-slate-500">For best character consistency, upload each character’s approved anime reference image below.</p></div>
+        <div className="rounded-2xl border border-white/10 bg-[#11182a] p-3 sm:p-4"><div className="mb-3 flex items-center justify-between"><div><h2 className="font-bold">Live vertical preview</h2><p className="text-xs text-slate-400">Moonlit rooftop · moving breeze · dialogue captions</p></div><button onClick={playScenePreview} disabled={isExporting} className="rounded-lg bg-white/10 px-3 py-2 text-xs disabled:opacity-50">{isPlaying?"Ⅱ Stop preview":"▶ Play scene"}</button></div><div className="mx-auto w-full max-w-[310px] overflow-hidden rounded-2xl border border-sky-100/20 bg-black shadow-[0_0_55px_#315b9b33]"><canvas ref={canvasRef} width={540} height={960} className="block h-auto w-full"/></div><p className="mt-3 text-center text-[11px] text-slate-500">For best character consistency, upload each character’s approved anime reference image below.</p></div>
         <div className="rounded-2xl border border-white/10 bg-[#11182a] p-4"><div className="flex items-center justify-between"><div><h2 className="font-bold">Episode timeline</h2><p className="text-xs text-slate-400">{scenes.length} scenes · {totalDuration}s total</p></div><button onClick={addScene} className="rounded-lg border border-sky-300/30 px-3 py-2 text-xs text-sky-200">＋ Add scene</button></div><div className="mt-3 grid gap-2 sm:grid-cols-2">{scenes.map((scene,i)=>{const speaker=characters.find(c=>c.id===scene.speakerId);return <button key={scene.id} onClick={()=>setActiveScene(scene.id)} className={`rounded-xl border p-3 text-left ${activeScene===scene.id?"border-sky-300/60 bg-sky-300/10":"border-white/10 bg-white/[.03]"}`}><div className="flex justify-between text-xs"><b>{String(i+1).padStart(2,"0")} · {scene.title}</b><span className="text-slate-400">{scene.duration}s</span></div><div className="mt-1 text-[11px] text-sky-200">{speaker?.name??"Group"}</div><p className="mt-2 line-clamp-2 text-xs text-slate-300">{scene.dialogue}</p></button>;})}</div></div>
       </div>
       <aside className="space-y-4">
