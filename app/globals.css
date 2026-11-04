@@ -94,6 +94,30 @@ button:disabled { cursor:not-allowed; }
   .editor-content-panel { width:204px; }
 }
 @media (max-width:760px) {
+  /* Anime Studio uses the full document for scrolling on phones. */
+  html, body { height:auto !important;min-height:100% !important;overflow-x:hidden !important;overflow-y:auto !important; }
+  body { position:relative; }
+  .anime-layout { display:flex !important;flex-direction:column !important;gap:12px !important;padding:12px 12px calc(110px + env(safe-area-inset-bottom)) !important; }
+  .anime-workspace,.anime-sidebar { display:contents !important; }
+  .anime-intro { order:0; }
+  .anime-tabs { order:1;position:sticky;top:4px;z-index:25;box-shadow:0 8px 24px rgba(0,0,0,.25); }
+  .anime-character-panel { order:2; }
+  .anime-timeline { order:3;scroll-margin-top:72px; }
+  .anime-preview { order:4; }
+  .anime-editor-panel { order:5; }
+  .anime-workflow { order:6; }
+  .anime-sidebar > .flex:first-child { position:sticky;top:4px;z-index:25;background:#11182a;padding:5px;border:1px solid rgba(255,255,255,.1);border-radius:12px; }
+  .anime-timeline .grid { grid-template-columns:minmax(0,1fr) !important; }
+  .anime-timeline button { min-height:84px; }
+  .anime-preview canvas { width:100%;height:auto; }
+  .anime-character-panel img { object-fit:cover; }
+  .anime-character-panel > div:nth-of-type(2) { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px; }
+  .anime-character-panel > div:nth-of-type(2) button { min-width:0; }
+  .anime-character-panel label { display:block; }
+  .anime-intro h1 { font-size:1.35rem; }
+  .anime-preview { scroll-margin-top:70px; }
+  .anime-layout > * { min-width:0; }
+
   .anime-layout { display:flex;flex-direction:column; }
   .anime-sidebar { order:0; }
   .anime-workspace { order:1; }
