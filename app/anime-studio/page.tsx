@@ -148,7 +148,7 @@ export default function AnimeStudioPage() {
     if (captions) {
       ctx.fillStyle="rgba(3,7,18,.82)"; ctx.fillRect(w*.06,h*.73,w*.88,h*.18);
       ctx.fillStyle="#f8fbff"; ctx.textAlign="center"; ctx.font="bold 29px Arial";
-      const words=scene.dialogue.split(" "); let lines: string[]=[]; let line="";
+      const words=scene.dialogue.split(" "); const lines: string[]=[]; let line="";
       for(const word of words){ if((line+" "+word).trim().length>34){lines.push(line);line=word;} else line=(line+" "+word).trim(); } if(line)lines.push(line);
       lines.slice(0,3).forEach((l,i)=>ctx.fillText(l,w/2,h*.78+i*37,w*.82));
       ctx.fillStyle="#9fb6df"; ctx.font="bold 17px Arial"; ctx.fillText(actor?.name ?? "HUM CHAAR DOST",w/2,h*.95);
